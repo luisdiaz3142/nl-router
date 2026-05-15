@@ -58,6 +58,10 @@ Config load_config() {
     c.max_pdu_size           = env_int<std::uint32_t>("NL_ROUTER_MAX_PDU_SIZE", c.max_pdu_size);
     c.association_timeout_s  = env_int<std::uint32_t>("NL_ROUTER_ASSOCIATION_TIMEOUT_S",
                                                        c.association_timeout_s);
+    c.metrics_port           = env_int<std::uint16_t>("NL_ROUTER_METRICS_PORT", c.metrics_port);
+    c.metrics_bind_addr      = env_or("NL_ROUTER_METRICS_BIND_ADDR", c.metrics_bind_addr);
+    c.disk_poll_interval_s   = env_int<std::uint32_t>("NL_ROUTER_DISK_POLL_INTERVAL_S",
+                                                       c.disk_poll_interval_s);
     c.log_level              = env_or("NL_ROUTER_LOG_LEVEL", c.log_level);
     return c;
 }

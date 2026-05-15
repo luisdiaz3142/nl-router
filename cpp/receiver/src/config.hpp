@@ -39,6 +39,19 @@ struct Config {
     // configurable per-association limits land in M10.)
     std::uint32_t association_timeout_s {30};
 
+    // Prometheus /metrics HTTP exposer. Setting port to 0 disables the
+    // exposer entirely — useful for tests and CI runs. bind_addr controls
+    // the listen interface (0.0.0.0 = all). The endpoint serves text-
+    // exposition format on GET /metrics and a small "ok" on GET / and
+    // GET /healthz for load-balancer health checks.
+    std::uint16_t metrics_port      {9180};
+    std::string   metrics_bind_addr {"0.0.0.0"};
+
+    // How often the disk-stats poller updates the landing-zone gauges, in
+    // seconds. Slice 2 of M10 layers two-threshold admission control on
+    // top of these gauges; for now they're informational only.
+    std::uint32_t disk_poll_interval_s {10};
+
     // Logging verbosity. "info" or "debug". Reloaded on SIGHUP in v2.
     std::string log_level {"info"};
 };
@@ -52,6 +65,8 @@ struct Config {
 // Optional (defaults shown above):
 //   NL_ROUTER_HOST_AET, NL_ROUTER_LISTEN_PORT, NL_ROUTER_LANDING_ZONE,
 //   NL_ROUTER_MAX_PDU_SIZE, NL_ROUTER_ASSOCIATION_TIMEOUT_S,
+//   NL_ROUTER_METRICS_PORT, NL_ROUTER_METRICS_BIND_ADDR,
+//   NL_ROUTER_DISK_POLL_INTERVAL_S,
 //   NL_ROUTER_LOG_LEVEL
 //
 // Throws std::runtime_error on missing required values or invalid integers.

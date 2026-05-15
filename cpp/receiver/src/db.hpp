@@ -16,6 +16,8 @@
 
 namespace nlr {
 
+struct ReceiverMetrics;
+
 // Per-study state collected during an association. The Association handler
 // builds one of these per unique study UID seen, then hands it to db::insert
 // at association end.
@@ -56,6 +58,13 @@ public:
     Db(const Db&)            = delete;
     Db& operator=(const Db&) = delete;
 
+    // Optional metrics hook. When set, insert_work_queue_row observes its
+    // own latency into db_insert_duration_seconds and bumps
+    // db_insert_errors_total on failure. Pointer (not reference) because
+    // the receiver legitimately constructs Db before the metrics struct
+    // exists in some tests.
+    void set_metrics(const ReceiverMetrics* m) noexcept { metrics_ = m; }
+
     // INSERT one work_queue row. Returns the new row's id on success.
     // Throws DbError on permanent failure (e.g. constraint violation,
     // missing column).
@@ -68,6 +77,7 @@ private:
     std::string dsn_;
     void*       conn_ {nullptr};   // PGconn* — kept as void* to keep libpq
                                     // out of this header's includes
+    const ReceiverMetrics* metrics_ {nullptr};
 };
 
 }  // namespace nlr

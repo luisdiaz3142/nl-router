@@ -23,12 +23,13 @@
 
 #include "config.hpp"
 #include "db.hpp"
+#include "metrics.hpp"
 
 namespace nlr {
 
 class AssociationHandler : public DcmSCP {
 public:
-    AssociationHandler(const Config& cfg, Db& db);
+    AssociationHandler(const Config& cfg, Db& db, const ReceiverMetrics& metrics);
     ~AssociationHandler() override = default;
 
     AssociationHandler(const AssociationHandler&)            = delete;
@@ -58,6 +59,7 @@ private:
 
     const Config& cfg_;
     Db&           db_;
+    const ReceiverMetrics& metrics_;
     std::map<std::string, StudyState> studies_;
     std::chrono::system_clock::time_point assoc_start_;
 

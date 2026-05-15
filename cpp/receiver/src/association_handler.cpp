@@ -29,8 +29,9 @@
 
 namespace nlr {
 
-AssociationHandler::AssociationHandler(const Config& cfg, Db& db)
-    : cfg_(cfg), db_(db) {}
+AssociationHandler::AssociationHandler(const Config& cfg, Db& db,
+                                        const ReceiverMetrics& metrics)
+    : cfg_(cfg), db_(db), metrics_(metrics) {}
 
 // Normalize a peer address string to a numeric IP literal suitable for
 // inserting into the work_queue.peer_ip INET column.
@@ -113,6 +114,15 @@ void AssociationHandler::snapshot_network_context_() {
 
     assoc_start_ = std::chrono::system_clock::now();
     snapshot_done_ = true;
+
+    // We bump "accepted" here rather than in DcmSCP::negotiateAssociation
+    // because that hook isn't cleanly overridable in DCMTK 3.6.x; reaching
+    // handleIncomingCommand means negotiation completed and the peer is
+    // talking DIMSE, which is the operational definition of "accepted."
+    metrics_.associations_total.labels({"accepted"}).inc();
+    metrics_.associations_active.self().inc();
+    // v1 single-threaded model — busy reflects the single in-flight assoc.
+    metrics_.workers_busy.self().inc();
 
     LOG_INFO("association.accept",
         "calling_aet", calling_aet_,
@@ -223,6 +233,16 @@ OFCondition AssociationHandler::handle_store(
     }
     study_state.row.instance_count += 1;
 
+    // Metric labels: empty modality/calling_aet would create an
+    // "unknown" bucket — keep label values stable but non-empty.
+    const std::string modality =
+        tags.modality ? *tags.modality : std::string{"unknown"};
+    metrics_.instances_received_total.labels({calling_aet_, modality}).inc();
+    if (!ec) {
+        metrics_.bytes_received_total.labels({calling_aet_})
+            .inc(static_cast<std::int64_t>(bytes));
+    }
+
     LOG_DEBUG("store.instance_written",
         "study_uid",  tags.study_instance_uid,
         "series_uid", *tags.series_instance_uid,
@@ -246,7 +266,8 @@ OFCondition AssociationHandler::handle_store(
 void AssociationHandler::notifyAssociationTermination() {
     if (!snapshot_done_) {
         // We accepted the association but never saw a C-STORE (e.g., the
-        // peer only did a C-ECHO). Nothing to flush.
+        // peer only did a C-ECHO). Nothing to flush — and crucially, we
+        // never bumped associations_active either, so don't decrement.
         DcmSCP::notifyAssociationTermination();
         return;
     }
@@ -264,12 +285,26 @@ void AssociationHandler::notifyAssociationTermination() {
                 "instance_count", std::to_string(state.row.instance_count),
                 "byte_count",    std::to_string(state.row.byte_count));
             ++rows_inserted;
+            // v1 only ships the assoc_end trigger; series/study idle
+            // timers land alongside the bounded-pool listener.
+            metrics_.studies_closed_total.labels({"assoc_end"}).inc();
         } catch (const std::exception& e) {
             LOG_ERROR("work_queue.insert_failed",
                 "study_uid", study_uid,
                 "error",     e.what());
         }
     }
+
+    // Duration: monotonic clock would be cleaner but assoc_start_ is wall-
+    // clock from snapshot_network_context_(); subtracting a system_clock
+    // pair is fine for an O(seconds-to-minutes) measurement on a single
+    // host. We accept the (tiny) NTP-adjustment risk because the dashboard
+    // uses these buckets for outlier detection, not nanosecond accuracy.
+    const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(
+        std::chrono::system_clock::now() - assoc_start_).count();
+    metrics_.association_duration_seconds.self().observe(dt);
+    metrics_.associations_active.self().dec();
+    metrics_.workers_busy.self().dec();
 
     LOG_INFO("association.close",
         "calling_aet",       calling_aet_,

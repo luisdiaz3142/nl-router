@@ -74,9 +74,15 @@ const std::vector<const char*> kAcceptedTransferSyntaxes = {
 
 }  // namespace
 
-Server::Server(const Config& cfg, Db& db) : cfg_(cfg), db_(db) {
-    handler_ = std::make_unique<AssociationHandler>(cfg_, db_);
+Server::Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics)
+    : cfg_(cfg), db_(db), metrics_(metrics) {
+    handler_ = std::make_unique<AssociationHandler>(cfg_, db_, metrics_);
     configure_presentation_contexts_();
+
+    // The single-threaded baseline reports one worker; the bounded-pool
+    // upgrade (also in M10) will set this to max_associations and bump
+    // workers_busy from inside the pool dispatch.
+    metrics_.workers_total.self().set(1);
 }
 
 void Server::configure_presentation_contexts_() {

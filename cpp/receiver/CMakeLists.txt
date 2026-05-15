@@ -38,6 +38,7 @@ add_executable(nl-receiver
     src/db.cpp
     src/association_handler.cpp
     src/server.cpp
+    src/metrics.cpp
 )
 
 target_include_directories(nl-receiver PRIVATE
@@ -48,6 +49,7 @@ target_include_directories(nl-receiver PRIVATE
 target_link_libraries(nl-receiver PRIVATE
     DCMTK::DCMTK
     ${PostgreSQL_LIBRARIES}
+    nl_router_metrics
 )
 
 # DCMTK's headers trip -Wold-style-cast / -Wsign-conversion. They're not our

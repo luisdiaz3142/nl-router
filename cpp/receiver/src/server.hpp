@@ -12,12 +12,13 @@
 #include "association_handler.hpp"
 #include "config.hpp"
 #include "db.hpp"
+#include "metrics.hpp"
 
 namespace nlr {
 
 class Server {
 public:
-    Server(const Config& cfg, Db& db);
+    Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics);
 
     // Run the accept loop. Returns when stop() is called or a fatal network
     // error occurs.
@@ -32,6 +33,7 @@ private:
 
     const Config& cfg_;
     Db&           db_;
+    const ReceiverMetrics& metrics_;
     std::unique_ptr<AssociationHandler> handler_;
     std::atomic<bool> stop_requested_ {false};
 };

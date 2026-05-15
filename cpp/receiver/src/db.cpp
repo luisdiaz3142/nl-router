@@ -3,6 +3,7 @@
 #include <libpq-fe.h>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "logging.hpp"
+#include "metrics.hpp"
 
 namespace nlr {
 
@@ -234,6 +236,20 @@ void Db::ensure_connected_() {
 std::int64_t Db::insert_work_queue_row(const StudyRow& row) {
     ensure_connected_();
 
+    // Latency observation around the actual PQexecParams call (excluding
+    // the param-binding loop, which is allocation-dominated and not the
+    // metric we care about). Captured here so we can record on both
+    // success and exception paths.
+    using clock = std::chrono::steady_clock;
+    const auto t0 = clock::now();
+    const auto record_latency = [&]() {
+        if (metrics_) {
+            const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(
+                clock::now() - t0).count();
+            metrics_->db_insert_duration_seconds.self().observe(dt);
+        }
+    };
+
     // Build the params array. 58 bound params, in the same order as $1..$58
     // in kInsertSql.
     std::vector<std::string>  storage;
@@ -316,10 +332,13 @@ std::int64_t Db::insert_work_queue_row(const StudyRow& row) {
     };
 
     if (PQresultStatus(r.r) != PGRES_TUPLES_OK) {
+        record_latency();
+        if (metrics_) metrics_->db_insert_errors_total.self().inc();
         const std::string err = PQerrorMessage(as_conn(conn_));
         throw DbError("INSERT work_queue failed: " + err);
     }
 
+    record_latency();
     const char* id_text = PQgetvalue(r.r, 0, 0);
     return std::stoll(id_text ? id_text : "0");
 }

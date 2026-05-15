@@ -2,3 +2,4 @@
 
 add_subdirectory(dsl)
 add_subdirectory(crypto)
+add_subdirectory(metrics)
