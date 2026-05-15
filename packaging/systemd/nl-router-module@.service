@@ -1,0 +1,64 @@
+[Unit]
+# Templated unit for processing-module workers. Instance name = module kind
+# matching the processing_modules.kind column exactly (underscores, not
+# hyphens).
+#
+# Example:
+#   systemctl enable --now nl-router-module@anonymize_basic
+#
+# Operator-supplied modules drop a binary at /usr/libexec/nl-router/modules/<kind>
+# and this template invokes it.
+
+Description=nl-router processing module (%i)
+Documentation=https://github.com/nl-router
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nl-router
+Group=nl-router
+
+# Per-kind environment file lets operators override config without
+# touching the shared base. Both files are optional; the worker also
+# reads /etc/nl-router/config.toml via the standard config loader.
+EnvironmentFile=-/etc/nl-router/module-common.env
+EnvironmentFile=-/etc/nl-router/module-%i.env
+Environment=NL_ROUTER_MODULE_KIND=%i
+
+ExecStart=/usr/libexec/nl-router/modules/%i
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+PrivateDevices=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+# Processing modules read input from the receiver's landing/processing
+# tree and write outputs back to /var/lib/nl-router/processing.
+ReadWritePaths=/var/lib/nl-router /var/log/nl-router
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

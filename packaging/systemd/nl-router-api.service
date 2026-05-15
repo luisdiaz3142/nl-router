@@ -1,0 +1,51 @@
+[Unit]
+Description=nl-router management API + UI (FastAPI under Uvicorn)
+Documentation=https://github.com/nl-router
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nl-router
+Group=nl-router
+EnvironmentFile=-/etc/nl-router/api.env
+
+# The CLI wrapper at /usr/bin/nl-router execs the bundled venv's Python
+# with the right entry point. `serve` runs uvicorn under the same venv.
+ExecStart=/usr/bin/nl-router serve
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+PrivateDevices=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# Python JIT-free; safe to deny W^X.
+MemoryDenyWriteExecute=yes
+
+# /etc/nl-router contains config + KEK; API reads, never writes. /var/lib
+# is writable for transient cache files (rare).
+ReadWritePaths=/var/lib/nl-router /var/log/nl-router
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

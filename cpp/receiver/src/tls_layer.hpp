@@ -31,9 +31,10 @@ struct TlsConfig {
     std::string  key_file;
     std::string  ca_file;
     bool         require_client_cert {false};
-    // One of: "bcp195_rfc8996" (default, modern), "bcp195_rfc8996_mod",
-    // "bcp195_nd", "bcp195_ex". Operators rarely need to change this.
-    std::string  profile             {"bcp195_rfc8996"};
+    // One of: "bcp195_nd" (default — Non-downgrading BCP 195, TLS 1.2+),
+    // "bcp195_ex", "bcp195"; and on DCMTK 3.6.9+ also "bcp195_rfc8996",
+    // "bcp195_rfc8996_mod". Operators rarely need to change this.
+    std::string  profile             {"bcp195_nd"};
 };
 
 class TlsLayer {

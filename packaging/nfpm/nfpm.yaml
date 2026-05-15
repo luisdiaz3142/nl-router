@@ -1,0 +1,156 @@
+# nfpm package config for nl-router.
+#
+# A single config produces both .deb and .rpm by calling nfpm twice with
+# --packager deb / --packager rpm. Variables (NL_ROUTER_VERSION, etc.) are
+# substituted by build.sh from the repo state.
+#
+# Filesystem mapping is sourced from a "staging" directory built by
+# build.sh so this file stays a flat manifest — easier to audit than
+# scattered scriptlets.
+
+name: nl-router
+arch: "${NL_ROUTER_ARCH}"
+platform: linux
+version: "${NL_ROUTER_VERSION}"
+version_schema: semver
+section: net
+priority: optional
+maintainer: "Kevin Dietz <kevin.dietz@newlantern.ai>"
+description: |
+  DICOM router with centralized Postgres-backed configuration,
+  mercure / dicomdiablo-inspired routing model, and a multi-node
+  deployment shape.
+vendor: nl-router
+homepage: https://github.com/nl-router
+license: TBD
+
+# ---- Dependencies -------------------------------------------------------
+# Single-package layout: receiver, router, dispatcher, cleaner, processing
+# modules, FastAPI API, and golang-migrate all ship together. Operators on
+# worker-only nodes pay the cost of Python deps they don't run — accepted
+# tradeoff for install simplicity. A split (-core / -api) is a v2 option.
+depends:
+  - python3 (>= 3.11)
+  - python3-venv
+  - libpq5
+  - libssl3 | libssl1.1
+  - systemd
+
+# RPM uses different package names for the same libraries.
+rpm:
+  group: System Environment/Daemons
+  summary: DICOM router with centralized Postgres configuration
+  signature:
+    # Operator-provided signing key goes here when we publish a public
+    # repo. Unsigned for now (local testing).
+
+deb:
+  fields:
+    Bugs: https://github.com/nl-router/issues
+  # dpkg conffile handling: list config files that should not be silently
+  # overwritten on upgrade. /etc/nl-router/config.toml.example is treated
+  # as a regular file (we want operators to see new defaults on upgrade);
+  # the actual config.toml is created by postinstall from the example and
+  # never overwritten thereafter.
+
+# ---- Files --------------------------------------------------------------
+# Sources are absolute paths inside the build/staging tree; destinations
+# are the final on-disk paths. build.sh populates ${STAGING} before
+# invoking nfpm.
+
+contents:
+  # ---- Binaries (C++ daemons + modules) --------------------------------
+  - src: "${STAGING}/usr/bin/nl-receiver"
+    dst: /usr/bin/nl-receiver
+    file_info:
+      mode: 0755
+  - src: "${STAGING}/usr/bin/nl-route"
+    dst: /usr/bin/nl-route
+    file_info:
+      mode: 0755
+  - src: "${STAGING}/usr/bin/nl-dispatch"
+    dst: /usr/bin/nl-dispatch
+    file_info:
+      mode: 0755
+  - src: "${STAGING}/usr/bin/nl-clean"
+    dst: /usr/bin/nl-clean
+    file_info:
+      mode: 0755
+
+  # ---- golang-migrate binary -------------------------------------------
+  - src: "${STAGING}/usr/bin/nl-router-migrate"
+    dst: /usr/bin/nl-router-migrate
+    file_info:
+      mode: 0755
+
+  # ---- /usr/bin/nl-router shim (execs the bundled venv) ----------------
+  - src: "${STAGING}/usr/bin/nl-router"
+    dst: /usr/bin/nl-router
+    file_info:
+      mode: 0755
+
+  # ---- Processing module binaries --------------------------------------
+  - src: "${STAGING}/usr/libexec/nl-router/modules/anonymize_basic"
+    dst: /usr/libexec/nl-router/modules/anonymize_basic
+    file_info:
+      mode: 0755
+
+  # ---- Python wheel ----------------------------------------------------
+  # Installed into a venv by the postinstall script. We keep the wheel's
+  # PEP 491 filename (pip refuses non-compliant names) and inject it via
+  # build.sh exporting WHEEL_NAME for envsubst.
+  - src: "${STAGING}/usr/libexec/nl-router/wheels/${WHEEL_NAME}"
+    dst: /usr/libexec/nl-router/wheels/${WHEEL_NAME}
+    file_info:
+      mode: 0644
+
+  # ---- SQL migrations --------------------------------------------------
+  - src: "${STAGING}/usr/share/nl-router/migrations"
+    dst: /usr/share/nl-router/migrations
+    type: tree
+
+  # ---- systemd units ---------------------------------------------------
+  - src: "${STAGING}/lib/systemd/system/nl-router-receiver.service"
+    dst: /lib/systemd/system/nl-router-receiver.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-route.service"
+    dst: /lib/systemd/system/nl-router-route.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-dispatcher.service"
+    dst: /lib/systemd/system/nl-router-dispatcher.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-cleaner.service"
+    dst: /lib/systemd/system/nl-router-cleaner.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-api.service"
+    dst: /lib/systemd/system/nl-router-api.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-module@.service"
+    dst: /lib/systemd/system/nl-router-module@.service
+    file_info:
+      mode: 0644
+  - src: "${STAGING}/lib/systemd/system/nl-router-migrate.service"
+    dst: /lib/systemd/system/nl-router-migrate.service
+    file_info:
+      mode: 0644
+
+  # ---- Example config (postinstall copies to config.toml if absent) ----
+  - src: "${STAGING}/etc/nl-router/config.toml.example"
+    dst: /etc/nl-router/config.toml.example
+    type: config
+    file_info:
+      mode: 0640
+
+# ---- Scriptlets ---------------------------------------------------------
+# Paths are absolute so the rendered nfpm.yaml works from any cwd. The
+# REPO_ROOT env var is substituted by build.sh.
+scripts:
+  preinstall:  ${REPO_ROOT}/packaging/scripts/preinstall.sh
+  postinstall: ${REPO_ROOT}/packaging/scripts/postinstall.sh
+  preremove:   ${REPO_ROOT}/packaging/scripts/preremove.sh
+  postremove:  ${REPO_ROOT}/packaging/scripts/postremove.sh

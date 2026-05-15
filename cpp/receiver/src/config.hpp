@@ -70,7 +70,7 @@ struct Config {
     std::string   tls_key_file;
     std::string   tls_ca_file;             // required for mTLS
     bool          tls_require_client_cert  {false};
-    std::string   tls_profile              {"bcp195_rfc8996"};
+    std::string   tls_profile              {"bcp195_nd"};
 
     // Logging verbosity. "info" or "debug". Reloaded on SIGHUP in v2.
     std::string log_level {"info"};

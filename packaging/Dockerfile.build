@@ -1,0 +1,79 @@
+# Build environment for nl-router packages.
+#
+# Produces Linux .deb / .rpm artifacts on the host architecture (typically
+# amd64 in CI; arm64 builds use the same Dockerfile on an arm64 runner).
+#
+# Usage:
+#   docker build -t nl-router-build -f packaging/Dockerfile.build .
+#   docker run --rm -v "$PWD":/src -w /src nl-router-build \
+#     packaging/build.sh
+#   # → produces packaging/dist/*.deb, *.rpm
+#
+# We base on debian:12 because it has a recent enough python3 (3.11) and
+# all the C++ deps we need available via apt. The .rpm we produce is a
+# generic noarch-style package; nfpm handles the format conversion.
+
+FROM debian:12-slim
+
+ARG MIGRATE_VERSION=v4.17.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# ---- System deps (build + runtime support for nfpm) ---------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
+    git \
+    curl \
+    ca-certificates \
+    gettext-base \
+    # C++ deps for the daemons + modules.
+    libdcmtk-dev \
+    libpq-dev \
+    libssl-dev \
+    libssl3 \
+    nlohmann-json3-dev \
+    libcurl4-openssl-dev \
+    # Python (CLI + API).
+    python3 \
+    python3-venv \
+    python3-pip \
+    # Runtime deps needed inside the build container for testing the .deb.
+    libdcmtk17 \
+    libpq5 \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- nfpm -------------------------------------------------------------
+# nfpm is a Go binary; pin to a known release for reproducibility.
+ARG NFPM_VERSION=2.38.0
+RUN ARCH=$(dpkg --print-architecture) \
+ && curl -sSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_linux_${ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin nfpm \
+ && nfpm --version
+
+# ---- golang-migrate -----------------------------------------------------
+# We bundle the migrate binary into the package so operators don't need
+# Go installed. Architecture-specific download.
+RUN ARCH=$(dpkg --print-architecture) \
+ && case "${ARCH}" in \
+        amd64) MIGRATE_ARCH=amd64 ;; \
+        arm64) MIGRATE_ARCH=arm64 ;; \
+        *) echo "unsupported arch ${ARCH}"; exit 1 ;; \
+    esac \
+ && curl -sSL "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-${MIGRATE_ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin migrate \
+ && mv /usr/local/bin/migrate /usr/local/bin/nl-router-migrate \
+ && /usr/local/bin/nl-router-migrate -version
+
+# ---- Python build deps --------------------------------------------------
+RUN pip install --no-cache-dir --break-system-packages \
+        hatchling \
+        build
+
+# ---- Default cmd --------------------------------------------------------
+WORKDIR /src
+CMD ["packaging/build.sh"]

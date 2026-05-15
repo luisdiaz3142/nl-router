@@ -52,3 +52,5 @@ release/
 *.deb
 *.rpm
 *.tar.gz
+packaging/dist/
+cpp/build-pkg/

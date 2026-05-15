@@ -1,0 +1,41 @@
+[Unit]
+Description=nl-router database migrations (one-shot)
+Documentation=https://github.com/nl-router
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+# This is a one-shot unit; do NOT mark it WantedBy=multi-user.target. Operators
+# invoke it explicitly during deploy via `systemctl start nl-router-migrate`
+# or use the CLI: `sudo nl-router migrate`.
+
+[Service]
+Type=oneshot
+User=nl-router
+Group=nl-router
+EnvironmentFile=-/etc/nl-router/migrate.env
+
+# Apply all pending migrations. Idempotent: subsequent runs are no-ops when
+# the schema is already current.
+ExecStart=/usr/bin/nl-router migrate up
+
+# A migration failure should leave the service unit in a "failed" state so
+# operators see it; the next deploy can re-run.
+RemainAfterExit=no
+TimeoutStartSec=300s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+
+ReadWritePaths=/var/log/nl-router
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# No [Install] section — this is a manually triggered one-shot.

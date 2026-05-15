@@ -1,0 +1,64 @@
+# /etc/nl-router/config.toml — bootstrap configuration
+#
+# This file is the bootstrap config — everything needed before the daemons
+# can talk to the central database. DB-resident config (rules, destinations,
+# system_config knobs) is managed via the API / UI / `nl-router` CLI and
+# does NOT live in this file.
+#
+# Every key here can also be set via NL_ROUTER_<KEY> environment variables;
+# env wins over file. See `python/nl_router/config.py` for the canonical list.
+#
+# After editing this file:
+#   sudo systemctl restart 'nl-router-*'
+#
+# Copy this template to /etc/nl-router/config.toml and edit before running
+# `nl-router migrate` and `nl-router init`.
+
+[core]
+# Identifies this node. Each node in a multi-node deployment must have a
+# unique server_id — work_queue rows are processed only by the node whose
+# server_id matches the row.
+server_id = "node-a"
+
+# libpq-style Postgres DSN. Operator chooses HA topology (single instance,
+# Patroni, RDS Multi-AZ, Cloud SQL HA, etc.).
+database_url = "postgres://nl_router:CHANGEME@localhost:5432/nl_router?sslmode=require"
+
+# "info" or "debug".
+log_level = "info"
+
+[dicom]
+# Plain DICOM listener port. Modalities + downstream SCUs connect here.
+listen_port = 11112
+
+[tls]
+# Opt-in DICOM TLS. When true, requires cert_file + key_file. The TLS
+# listener runs on a separate port so plain + TLS can coexist.
+enabled       = false
+listen_port   = 2762
+# cert_file   = "/etc/nl-router/tls/server.crt"
+# key_file    = "/etc/nl-router/tls/server.key"
+# ca_file     = "/etc/nl-router/tls/ca.crt"   # required for mTLS
+# require_client_cert = false
+# profile     = "bcp195_rfc8996"              # modern default
+
+[api]
+# FastAPI management API. Default bind is 127.0.0.1 — put a reverse proxy
+# in front for remote access. The bundled venv ships uvicorn.
+bind         = "127.0.0.1"
+port         = 8080
+metrics_port = 9184
+
+[filesystem]
+# Per-node local disk. The cleaner enforces retention; sizing depends on
+# expected DICOM throughput × time-to-dispatch.
+landing_zone    = "/var/lib/nl-router/incoming"
+processing_zone = "/var/lib/nl-router/processing"
+
+[security]
+# KEK source: this file beats the NL_ROUTER_KEK env var when both are set.
+# 32 raw bytes or base64url-encoded. Generate via:
+#   openssl rand -base64 32 > /etc/nl-router/kek.key
+#   chown nl-router:nl-router /etc/nl-router/kek.key
+#   chmod 0400 /etc/nl-router/kek.key
+kek_file = "/etc/nl-router/kek.key"

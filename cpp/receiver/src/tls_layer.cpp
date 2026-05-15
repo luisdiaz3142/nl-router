@@ -12,14 +12,27 @@ namespace nlr {
 
 namespace {
 
-// Map our string knob to DCMTK's enum. Default is the modern RFC 8996
-// profile (TLS 1.2 minimum, modern ciphers). Operators rarely override.
+// Map our string knob to DCMTK's enum.
+//
+// Default for the receiver is bcp195_nd (Non-downgrading BCP 195) — TLS
+// 1.2 minimum, no fallback to older TLS, universally available across
+// DCMTK versions 3.6.6+. RFC 8996 / 8996_Modified are newer profiles
+// (DCMTK 3.6.9+) and only compiled in when the build container's DCMTK
+// supports them — see receiver/CMakeLists.txt for the feature check.
 DcmTLSSecurityProfile parse_profile(const std::string& s) {
-    if (s == "bcp195_rfc8996")      return TSP_Profile_BCP_195_RFC_8996;
-    if (s == "bcp195_rfc8996_mod")  return TSP_Profile_BCP_195_RFC_8996_Modified;
     if (s == "bcp195_nd")           return TSP_Profile_BCP195_ND;
     if (s == "bcp195_ex")           return TSP_Profile_BCP195_Extended;
     if (s == "bcp195")              return TSP_Profile_BCP195;   // retired but kept for compat
+#ifdef NL_RECEIVER_HAS_BCP195_RFC8996
+    if (s == "bcp195_rfc8996")      return TSP_Profile_BCP_195_RFC_8996;
+    if (s == "bcp195_rfc8996_mod")  return TSP_Profile_BCP_195_RFC_8996_Modified;
+#else
+    if (s == "bcp195_rfc8996" || s == "bcp195_rfc8996_mod") {
+        throw std::runtime_error(
+            "tls.profile=" + s + " requires DCMTK 3.6.9+; this build was "
+            "linked against an older DCMTK. Use bcp195_nd instead.");
+    }
+#endif
     throw std::runtime_error("unknown tls.profile: " + s);
 }
 
@@ -68,8 +81,17 @@ TlsLayer::TlsLayer(const TlsConfig& cfg) {
 
     check(tls_->setPrivateKeyFile(cfg.key_file.c_str(), kKeyFormat),
           "setPrivateKeyFile");
+#ifdef NL_RECEIVER_HAS_SETCERT_PROFILE
+    // 3-arg form (DCMTK 3.6.9+) validates cert algorithm against the
+    // profile's ciphersuite list at load time — better diagnostics.
     check(tls_->setCertificateFile(cfg.cert_file.c_str(), kKeyFormat, profile),
           "setCertificateFile");
+#else
+    // Older DCMTK: the 2-arg form skips cert/profile validation; any
+    // mismatch surfaces later at activateCipherSuites or handshake time.
+    check(tls_->setCertificateFile(cfg.cert_file.c_str(), kKeyFormat),
+          "setCertificateFile");
+#endif
 
     if (!tls_->checkPrivateKeyMatchesCertificate()) {
         throw std::runtime_error(

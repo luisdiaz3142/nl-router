@@ -1,0 +1,22 @@
+#!/bin/sh
+# /usr/bin/nl-router
+#
+# Thin shim that execs the bundled virtualenv's Python with the
+# nl_router CLI entry point. The venv is created at package install
+# time by the postinstall script (see packaging/scripts/postinstall.sh)
+# using the host's python3 — this keeps the .deb small and lets the
+# host Python toolchain manage native wheel selection.
+
+set -e
+
+NL_ROUTER_VENV="${NL_ROUTER_VENV:-/usr/libexec/nl-router/python}"
+NL_ROUTER_PY="${NL_ROUTER_VENV}/bin/python3"
+
+if [ ! -x "${NL_ROUTER_PY}" ]; then
+    echo "nl-router: bundled venv missing at ${NL_ROUTER_VENV}." 1>&2
+    echo "Run \`sudo /usr/libexec/nl-router/postinstall-venv.sh\` to (re)create it," 1>&2
+    echo "or reinstall the nl-router package." 1>&2
+    exit 127
+fi
+
+exec "${NL_ROUTER_PY}" -m nl_router "$@"
