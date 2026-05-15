@@ -10,7 +10,7 @@ from __future__ import annotations
 import typer
 
 from nl_router import __version__
-from nl_router.cli import config_io, destination, migrate, rule, status
+from nl_router.cli import config_io, destination, init, migrate, rule, serve, status
 
 app = typer.Typer(
     name="nl-router",
@@ -52,8 +52,10 @@ def _root(
 app.command(name="config-export")(config_io.export_)
 app.command(name="config-import")(config_io.import_)
 app.add_typer(destination.app, name="destination", help="Manage outbound destinations.")
+app.command(name="init")(init.init)
 app.command(name="migrate")(migrate.migrate)
 app.add_typer(rule.app, name="rule", help="Manage routing rules.")
+app.command(name="serve")(serve.serve)
 app.command(name="status")(status.status)
 
 
