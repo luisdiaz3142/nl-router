@@ -11,8 +11,19 @@ from nl_router.config import load
 
 
 def serve(
-    host: Annotated[str, typer.Option(help="Bind address. Use 0.0.0.0 to listen externally.")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="HTTP port.")] = 8080,
+    host: Annotated[
+        str | None,
+        typer.Option(
+            help="Bind address. Defaults to config.api_bind / NL_ROUTER_API_BIND "
+                 "(falling back to 127.0.0.1). Use 0.0.0.0 to listen externally."
+        ),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option(
+            help="HTTP port. Defaults to config.api_port / NL_ROUTER_API_PORT.",
+        ),
+    ] = None,
     reload: Annotated[bool, typer.Option(help="Auto-reload on source changes (dev only).")] = False,
     workers: Annotated[int, typer.Option(help="Uvicorn worker count. >1 disables --reload.")] = 1,
     log_level: Annotated[
@@ -36,8 +47,13 @@ def serve(
         ) from e
 
     cfg = load()
+    # Explicit flags win; otherwise pull from the env-loaded config.
+    # Final fallback is the function's old hardcoded defaults so callers
+    # who never set anything still get sane behavior.
+    effective_host = host if host is not None else cfg.api_bind
+    effective_port = port if port is not None else cfg.api_port
     out.print(
-        f"[green]starting[/green] nl-router API on [cyan]{host}:{port}[/cyan]\n"
+        f"[green]starting[/green] nl-router API on [cyan]{effective_host}:{effective_port}[/cyan]\n"
         f"  server_id : [cyan]{cfg.server_id}[/cyan]\n"
         f"  database  : [dim]{_redact_dsn(cfg.database_url)}[/dim]"
     )
@@ -45,8 +61,8 @@ def serve(
     import uvicorn
     uvicorn.run(
         "nl_router.api.app:app",
-        host=host,
-        port=port,
+        host=effective_host,
+        port=effective_port,
         reload=reload,
         workers=workers if not reload else 1,
         log_level=log_level,

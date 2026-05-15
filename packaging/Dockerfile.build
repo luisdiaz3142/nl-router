@@ -49,9 +49,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ---- nfpm -------------------------------------------------------------
 # nfpm is a Go binary; pin to a known release for reproducibility.
+# Upstream uses Go's GOARCH convention for asset names (x86_64 for amd64,
+# arm64 for arm64) — different from dpkg's `amd64/arm64`. Translate.
 ARG NFPM_VERSION=2.38.0
 RUN ARCH=$(dpkg --print-architecture) \
- && curl -sSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_linux_${ARCH}.tar.gz" \
+ && case "${ARCH}" in \
+        amd64) NFPM_ARCH=x86_64 ;; \
+        arm64) NFPM_ARCH=arm64 ;; \
+        *) echo "unsupported arch for nfpm: ${ARCH}"; exit 1 ;; \
+    esac \
+ && curl -sSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${NFPM_ARCH}.tar.gz" \
         | tar -xz -C /usr/local/bin nfpm \
  && nfpm --version
 

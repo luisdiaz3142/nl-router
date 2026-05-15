@@ -17,6 +17,15 @@ NL_USER=nl-router
 NL_GROUP=nl-router
 NL_HOME=/var/lib/nl-router
 
+# Locate the nologin shell across distros:
+#   Debian / Ubuntu / RHEL family : /usr/sbin/nologin
+#   Alpine / BusyBox              : /sbin/nologin
+# Fall back to /bin/false if neither exists (BusyBox without shadow).
+if   [ -x /usr/sbin/nologin ]; then NL_SHELL=/usr/sbin/nologin
+elif [ -x /sbin/nologin ];     then NL_SHELL=/sbin/nologin
+else                                NL_SHELL=/bin/false
+fi
+
 if ! getent group "${NL_GROUP}" >/dev/null 2>&1; then
     if command -v groupadd >/dev/null 2>&1; then
         groupadd --system "${NL_GROUP}"
@@ -31,7 +40,7 @@ if ! getent passwd "${NL_USER}" >/dev/null 2>&1; then
             --system \
             --gid "${NL_GROUP}" \
             --home-dir "${NL_HOME}" \
-            --shell /usr/sbin/nologin \
+            --shell ${NL_SHELL} \
             --comment "nl-router service account" \
             "${NL_USER}"
     else
@@ -40,7 +49,7 @@ if ! getent passwd "${NL_USER}" >/dev/null 2>&1; then
             --system \
             --ingroup "${NL_GROUP}" \
             --home "${NL_HOME}" \
-            --shell /usr/sbin/nologin \
+            --shell ${NL_SHELL} \
             --gecos "nl-router service account" \
             --quiet \
             --disabled-password \

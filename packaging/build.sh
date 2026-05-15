@@ -29,11 +29,23 @@ echo ">>> building nl-router ${VERSION} for ${ARCH}"
 # ---- Paths --------------------------------------------------------------
 DIST_DIR="${REPO_ROOT}/packaging/dist"
 STAGING="${DIST_DIR}/staging"
-rm -rf "${DIST_DIR}"
+TARBALL_DIR="${DIST_DIR}/tarball-${ARCH}"
+# Wipe only this arch's outputs + the staging dirs, so a multi-arch
+# orchestrator (build-all.sh) can accumulate all targets in dist/ across
+# back-to-back invocations.
+rm -rf "${STAGING}" "${TARBALL_DIR}"
+rm -f "${DIST_DIR}/nl-router_${VERSION}_${ARCH}".{deb,rpm}
+rm -f "${DIST_DIR}/nl-router-${VERSION}-${ARCH}.tar.gz"
+rm -f "${DIST_DIR}/nfpm.yaml"
 mkdir -p "${STAGING}" "${DIST_DIR}"
 
 # ---- 1. Build C++ binaries ---------------------------------------------
 echo ">>> [1/5] building C++ daemons + modules"
+# Wipe the build dir so arch-specific cached library paths from a prior
+# build-all.sh run don't bleed into this arch (CMake caches absolute
+# library paths that include the multiarch suffix, e.g.
+# /usr/lib/x86_64-linux-gnu vs /usr/lib/aarch64-linux-gnu).
+rm -rf cpp/build-pkg
 cmake -S cpp -B cpp/build-pkg -G Ninja \
       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DNL_ROUTER_BUILD_TESTS=OFF
@@ -118,6 +130,34 @@ for fmt in deb rpm; do
     echo "    produced: ${out}  ($(du -h "${out}" | cut -f1))"
 done
 
-# ---- 5. Summary --------------------------------------------------------
-echo ">>> [5/5] done"
-ls -lh "${DIST_DIR}"/*.deb "${DIST_DIR}"/*.rpm 2>/dev/null || true
+# ---- 5. Tarball + install.sh (for distros without .deb/.rpm) -----------
+echo ">>> [5/6] building tarball + install.sh"
+TARBALL_ROOT="${TARBALL_DIR}/nl-router-${VERSION}-${ARCH}"
+mkdir -p "${TARBALL_ROOT}/scripts"
+
+# Copy the staged filesystem tree (usr/, etc/, lib/) into the tarball
+# root. The tarball mirrors the .deb's layout 1:1, so install.sh just
+# `cp -a` the contents into /.
+cp -a "${STAGING}/." "${TARBALL_ROOT}/"
+
+# Reuse the same pre/postinstall scriptlets the .deb runs, bundled
+# inside the tarball so install.sh can call them.
+cp "${REPO_ROOT}/packaging/scripts/preinstall.sh"  "${TARBALL_ROOT}/scripts/"
+cp "${REPO_ROOT}/packaging/scripts/postinstall.sh" "${TARBALL_ROOT}/scripts/"
+cp "${REPO_ROOT}/packaging/scripts/preremove.sh"   "${TARBALL_ROOT}/scripts/"
+cp "${REPO_ROOT}/packaging/scripts/postremove.sh"  "${TARBALL_ROOT}/scripts/"
+chmod 0755 "${TARBALL_ROOT}/scripts"/*.sh
+
+cp "${REPO_ROOT}/packaging/install.sh" "${TARBALL_ROOT}/install.sh"
+chmod 0755 "${TARBALL_ROOT}/install.sh"
+
+cp "${REPO_ROOT}/packaging/README.md" "${TARBALL_ROOT}/README.md"
+
+TARBALL_OUT="${DIST_DIR}/nl-router-${VERSION}-${ARCH}.tar.gz"
+tar -czf "${TARBALL_OUT}" -C "${TARBALL_DIR}" "nl-router-${VERSION}-${ARCH}"
+rm -rf "${TARBALL_DIR}"
+echo "    produced: ${TARBALL_OUT}  ($(du -h "${TARBALL_OUT}" | cut -f1))"
+
+# ---- 6. Summary --------------------------------------------------------
+echo ">>> [6/6] done"
+ls -lh "${DIST_DIR}"/*.deb "${DIST_DIR}"/*.rpm "${DIST_DIR}"/*.tar.gz 2>/dev/null || true

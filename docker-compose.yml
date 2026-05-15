@@ -1,12 +1,27 @@
 # Local development stack for nl-router.
 #
-# At this stage only Postgres + PgBouncer are wired up; service containers
-# (receiver, router, dispatcher, cleaner, api, module workers) will be added
-# as their respective milestones land.
+# Two profiles:
 #
-# Usage:
-#   docker compose up -d postgres pgbouncer
-#   make migrate
+#   (default) — infrastructure only: Postgres + PgBouncer + MinIO. Common
+#               native-dev workflow: bring this up and run the C++ daemons
+#               + Python API directly on the host (`make dev` or ad-hoc).
+#                   docker compose up -d
+#
+#   services  — also runs every daemon out of the runtime image
+#               (packaging/runtime/Dockerfile). Use for full container-
+#               mode end-to-end testing without a host toolchain.
+#                   docker compose --profile services up -d
+#                   docker compose exec -u 0 api nl-router init   # mint token
+#                   #   ^^^ -u 0 (root) needed so init can write the KEK to
+#                   #   the root-owned /etc/nl-router dir. The daemons stay
+#                   #   unprivileged. In production this is a one-shot init
+#                   #   container; the persistent daemons never need root.
+#
+# The runtime image must exist locally before running the services
+# profile. Build it via:
+#   BUILD_IMAGES=1 ARCHES=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/') \
+#       packaging/build-all.sh
+#   docker tag nl-router:latest-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/') nl-router:latest
 
 services:
 
@@ -86,8 +101,153 @@ services:
       retries:  10
     restart: unless-stopped
 
+  # ===========================================================================
+  # services profile — daemon stack out of the runtime image.
+  # ===========================================================================
+  #
+  # All services share a small set of environment variables (server_id,
+  # DSN, KEK). We use YAML anchors to avoid repeating them. Each service
+  # mounts the same landing/processing volumes so files written by the
+  # receiver are visible to the router/processor/dispatcher.
+
+  # One-shot migration runner. Runs once on `compose up`, then exits.
+  # Other services depend on it via service_completed_successfully.
+  migrate:
+    image: nl-router:latest
+    profiles: ["services"]
+    environment:
+      NL_ROUTER_SERVER_ID:    dev-node
+      NL_ROUTER_DATABASE_URL: postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+    command: ["migrate", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  receiver:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-receiver
+    environment:
+      NL_ROUTER_SERVER_ID:     dev-node
+      NL_ROUTER_DATABASE_URL:  postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+      NL_ROUTER_HOST_AET:      NL_ROUTER
+      NL_ROUTER_LISTEN_PORT:   "11112"
+      NL_ROUTER_LANDING_ZONE:  /var/lib/nl-router/incoming
+      NL_ROUTER_METRICS_PORT:  "9180"
+    command: ["receiver"]
+    ports:
+      - "11112:11112"   # DICOM SCP
+      - "9180:9180"     # /metrics
+    volumes:
+      - nlr-data:/var/lib/nl-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  route:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-route
+    environment:
+      NL_ROUTER_SERVER_ID:       dev-node
+      NL_ROUTER_DATABASE_URL:    postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+      NL_ROUTER_PROCESSING_ROOT: /var/lib/nl-router/processing
+    command: ["route"]
+    volumes:
+      - nlr-data:/var/lib/nl-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dispatcher:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-dispatcher
+    environment:
+      NL_ROUTER_SERVER_ID:    dev-node
+      NL_ROUTER_DATABASE_URL: postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+      NL_ROUTER_KEK_FILE:     /etc/nl-router/kek.key
+    command: ["dispatcher"]
+    volumes:
+      - nlr-data:/var/lib/nl-router
+      - nlr-etc:/etc/nl-router    # KEK + config; populated by init
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  cleaner:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-cleaner
+    environment:
+      NL_ROUTER_SERVER_ID:    dev-node
+      NL_ROUTER_DATABASE_URL: postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+    command: ["cleaner"]
+    volumes:
+      - nlr-data:/var/lib/nl-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Management API (FastAPI under uvicorn). Bound to 0.0.0.0 inside the
+  # container so the host-published port is reachable. Use Authorization:
+  # Bearer <token> with a token minted via `docker compose run --rm api init`.
+  api:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-api
+    environment:
+      NL_ROUTER_SERVER_ID:    dev-node
+      NL_ROUTER_DATABASE_URL: postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+      NL_ROUTER_API_BIND:     "0.0.0.0"
+      NL_ROUTER_API_PORT:     "8080"
+      NL_ROUTER_KEK_FILE:     /etc/nl-router/kek.key
+    command: ["api"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - nlr-data:/var/lib/nl-router
+      - nlr-etc:/etc/nl-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Example processing-module worker. Add more workers by copying this
+  # block with a different `command: ["module", "<kind>"]`.
+  anonymize-basic:
+    image: nl-router:latest
+    profiles: ["services"]
+    container_name: nl-router-mod-anonymize-basic
+    environment:
+      NL_ROUTER_SERVER_ID:    dev-node
+      NL_ROUTER_DATABASE_URL: postgres://nl_router:nl_router@postgres:5432/nl_router?sslmode=disable
+    command: ["module", "anonymize_basic"]
+    volumes:
+      - nlr-data:/var/lib/nl-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   pgdata:
     driver: local
   miniodata:
+    driver: local
+  # Shared per-node state for the daemon stack under the `services`
+  # profile. Maps to /var/lib/nl-router inside the containers — the same
+  # path the .deb / .rpm uses on bare-metal installs.
+  nlr-data:
+    driver: local
+  # Operator-supplied config + KEK. In dev we let `docker compose run
+  # --rm api init` populate this volume; production deployments either
+  # bind-mount /etc/nl-router from the host or pre-seed it via a config-
+  # management tool.
+  nlr-etc:
     driver: local
