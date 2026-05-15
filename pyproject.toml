@@ -27,6 +27,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.1",    # Postgres driver (async + sync); binary wheels avoid libpq build
     "pydantic>=2.6",                # config validation; FastAPI models in M4
     "tomli-w>=1.0",                 # tomllib is stdlib for reads; we need a writer for config-export
+    "cryptography>=42",             # AES-256-GCM for credential envelope encryption (M5)
 ]
 
 # FastAPI / Uvicorn / Jinja2 / authlib / argon2-cffi are M4 (API) deps —

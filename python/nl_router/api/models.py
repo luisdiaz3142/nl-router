@@ -272,6 +272,59 @@ class AuditPage(BaseModel):
 
 
 # ============================================================
+# Credentials
+# ============================================================
+#
+# Operators send the plaintext payload at create / rotate time; we never
+# return it. List/get responses include only metadata.
+
+
+class CredentialCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=200)
+    kind: str = Field(..., min_length=1, max_length=50,
+                       description="One of: basic_http, bearer_token, api_key, "
+                                    "aws_keys, gcp_service_account, mtls_cert, tls_cert.")
+    description: str | None = None
+    payload: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Plaintext payload, validated against the kind-specific schema. "
+            "Encrypted before insert; never echoed back in any response."
+        ),
+    )
+    expires_at: datetime | None = None
+
+
+class CredentialRotate(BaseModel):
+    """Rotate the payload, or PATCH metadata. `payload` is the only field
+    that triggers a re-encrypt; description / expires_at can be updated
+    independently."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payload: dict[str, Any] | None = None
+    description: str | None = None
+    expires_at: datetime | None = None
+
+
+class CredentialOut(BaseModel):
+    """Metadata-only view. Never includes plaintext or ciphertext."""
+
+    id: int
+    name: str
+    description: str | None
+    kind: str
+    enc_version: int
+    metadata: dict[str, Any] | None
+    created_at: datetime
+    created_by: str | None
+    updated_at: datetime
+    updated_by: str | None
+
+
+# ============================================================
 # API tokens
 # ============================================================
 

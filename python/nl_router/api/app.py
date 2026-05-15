@@ -18,6 +18,7 @@ from nl_router import __version__
 from nl_router.api.routes import (
     assignments,
     audit,
+    credentials,
     destinations,
     health,
     rules,
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(workqueue.router,    prefix="/api/v1")      # /api/v1/workqueue
     app.include_router(assignments.router,  prefix="/api/v1")      # /api/v1/assignments
     app.include_router(audit.router,        prefix="/api/v1")      # /api/v1/audit
+    app.include_router(credentials.router,  prefix="/api/v1")      # /api/v1/credentials
     app.include_router(tokens.router,       prefix="/api/v1")      # /api/v1/tokens
 
     return app
