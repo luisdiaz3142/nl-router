@@ -23,8 +23,8 @@ ReceiverMetrics ReceiverMetrics::register_all(nlr::metrics::Registry& r) {
     return ReceiverMetrics{
         .associations_total = r.counter(
             "nl_receiver_associations_total",
-            "Total inbound DICOM associations, by acceptance result",
-            {"result"}),
+            "Total inbound DICOM associations, by acceptance result and peer transport",
+            {"result", "peer_type"}),
         .associations_active = r.gauge(
             "nl_receiver_associations_active",
             "Number of currently active DICOM associations"),

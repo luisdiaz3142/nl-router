@@ -58,6 +58,20 @@ struct Config {
     std::uint8_t  disk_warn_pct   {85};
     std::uint8_t  disk_reject_pct {95};
 
+    // ---- DICOM TLS -----------------------------------------------------
+    // Opt-in: when tls_enabled is true, a second listener binds on
+    // tls_listen_port and runs the same SCP logic over a TLS-wrapped
+    // socket. The plain listener on listen_port continues to operate;
+    // operators who want TLS-only deployments must firewall the plain
+    // port (or set it to 0 in a future config knob).
+    bool          tls_enabled              {false};
+    std::uint16_t tls_listen_port          {2762};
+    std::string   tls_cert_file;
+    std::string   tls_key_file;
+    std::string   tls_ca_file;             // required for mTLS
+    bool          tls_require_client_cert  {false};
+    std::string   tls_profile              {"bcp195_rfc8996"};
+
     // Logging verbosity. "info" or "debug". Reloaded on SIGHUP in v2.
     std::string log_level {"info"};
 };
@@ -74,6 +88,10 @@ struct Config {
 //   NL_ROUTER_METRICS_PORT, NL_ROUTER_METRICS_BIND_ADDR,
 //   NL_ROUTER_DISK_POLL_INTERVAL_S,
 //   NL_ROUTER_DISK_WARN_PCT, NL_ROUTER_DISK_REJECT_PCT,
+//   NL_ROUTER_TLS_ENABLED, NL_ROUTER_TLS_LISTEN_PORT,
+//   NL_ROUTER_TLS_CERT_FILE, NL_ROUTER_TLS_KEY_FILE,
+//   NL_ROUTER_TLS_CA_FILE, NL_ROUTER_TLS_REQUIRE_CLIENT_CERT,
+//   NL_ROUTER_TLS_PROFILE,
 //   NL_ROUTER_LOG_LEVEL
 //
 // Throws std::runtime_error on missing required values or invalid integers.

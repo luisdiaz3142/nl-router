@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "logging.hpp"
+#include "tls_layer.hpp"
 
 namespace nlr {
 
@@ -75,21 +76,38 @@ const std::vector<const char*> kAcceptedTransferSyntaxes = {
 }  // namespace
 
 Server::Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics,
-                const DiskGuard* disk_guard)
-    : cfg_(cfg), db_(db), metrics_(metrics) {
-    handler_ = std::make_unique<AssociationHandler>(cfg_, db_, metrics_, disk_guard);
-    configure_presentation_contexts_();
+                const DiskGuard* disk_guard, TlsLayer* tls_layer)
+    : cfg_(cfg), db_(db), metrics_(metrics)
+{
+    // Plain listener — always present.
+    plain_handler_ = std::make_unique<AssociationHandler>(
+        cfg_, db_, metrics_, disk_guard, std::string{"plain"});
+    configure_presentation_contexts_(*plain_handler_, cfg_.listen_port);
 
-    // The single-threaded baseline reports one worker; the bounded-pool
-    // upgrade (also in M10) will set this to max_associations and bump
-    // workers_busy from inside the pool dispatch.
-    metrics_.workers_total.self().set(1);
+    // TLS listener — only if explicitly enabled and a layer is provided.
+    if (cfg_.tls_enabled && tls_layer != nullptr) {
+        tls_handler_ = std::make_unique<AssociationHandler>(
+            cfg_, db_, metrics_, disk_guard, std::string{"tls"});
+        configure_presentation_contexts_(*tls_handler_, cfg_.tls_listen_port);
+
+        DcmSCPConfig& tls_scfg = tls_handler_->getConfig();
+        // setTransportLayer is non-owning; the TlsLayer instance must
+        // outlive this handler. main.cpp guarantees that ordering.
+        tls_scfg.setTransportLayer(tls_layer->layer());
+    }
+
+    // The single-threaded baseline reports one worker per listener.
+    // The bounded-pool upgrade (still M10 scope, follow-up commit) will
+    // set this to max_associations × #listeners and bump workers_busy
+    // from inside the pool dispatch.
+    metrics_.workers_total.self().set(tls_handler_ ? 2 : 1);
 }
 
-void Server::configure_presentation_contexts_() {
-    DcmSCPConfig& scfg = handler_->getConfig();
+void Server::configure_presentation_contexts_(AssociationHandler& handler,
+                                                std::uint16_t port) {
+    DcmSCPConfig& scfg = handler.getConfig();
     scfg.setAETitle(cfg_.host_aet.c_str());
-    scfg.setPort(cfg_.listen_port);
+    scfg.setPort(port);
     scfg.setMaxReceivePDULength(cfg_.max_pdu_size);
     scfg.setConnectionBlockingMode(DUL_BLOCK);
     scfg.setACSETimeout(cfg_.association_timeout_s);
@@ -120,17 +138,13 @@ void Server::configure_presentation_contexts_() {
 
     LOG_INFO("scp.configure",
         "aet",                cfg_.host_aet,
-        "port",               std::to_string(cfg_.listen_port),
+        "port",               std::to_string(port),
         "sop_classes",        std::to_string(kAcceptedStorageSopClasses.size()),
         "transfer_syntaxes",  std::to_string(kAcceptedTransferSyntaxes.size()),
         "max_pdu",            std::to_string(cfg_.max_pdu_size));
 }
 
-int Server::run() {
-    LOG_INFO("scp.listen",
-        "host_aet", cfg_.host_aet,
-        "port",     std::to_string(cfg_.listen_port));
-
+int Server::run_listener_(AssociationHandler& handler, const char* tag) {
     // DcmSCP::listen() is a single-association blocking loop. It returns
     // when the association ends (success or error); we loop here to accept
     // additional associations until told to stop.
@@ -140,12 +154,14 @@ int Server::run() {
     // errors as a fatal listen failure via a small failure counter.
     int consecutive_errors = 0;
     while (!stop_requested_.load(std::memory_order_relaxed)) {
-        OFCondition cond = handler_->listen();
+        OFCondition cond = handler.listen();
         if (cond.bad()) {
-            LOG_WARN("scp.listen_error", "error",
-                cond.text() ? cond.text() : "unknown");
+            LOG_WARN("scp.listen_error",
+                "listener", tag,
+                "error",    cond.text() ? cond.text() : "unknown");
             if (++consecutive_errors >= 5) {
                 LOG_ERROR("scp.listen_giving_up",
+                    "listener",           tag,
                     "consecutive_errors", std::to_string(consecutive_errors));
                 return 2;
             }
@@ -153,8 +169,38 @@ int Server::run() {
             consecutive_errors = 0;
         }
     }
-    LOG_INFO("scp.shutdown");
     return 0;
+}
+
+int Server::run() {
+    LOG_INFO("scp.listen",
+        "host_aet", cfg_.host_aet,
+        "port",     std::to_string(cfg_.listen_port),
+        "peer_type", "plain");
+
+    // If TLS is enabled, spin up a dedicated listener thread. The plain
+    // listener runs on the main thread because that's where M1 already
+    // ran it; the TLS listener is the new addition. Either listener can
+    // accept independently.
+    if (tls_handler_) {
+        LOG_INFO("scp.listen",
+            "host_aet", cfg_.host_aet,
+            "port",     std::to_string(cfg_.tls_listen_port),
+            "peer_type", "tls");
+        tls_thread_ = std::thread([this] {
+            (void)run_listener_(*tls_handler_, "tls");
+        });
+    }
+
+    const int plain_rc = run_listener_(*plain_handler_, "plain");
+
+    // Plain listener returned (stop or fatal). Tell TLS listener to stop
+    // and wait for it.
+    stop_requested_.store(true, std::memory_order_relaxed);
+    if (tls_thread_.joinable()) tls_thread_.join();
+
+    LOG_INFO("scp.shutdown");
+    return plain_rc;
 }
 
 void Server::stop() noexcept {

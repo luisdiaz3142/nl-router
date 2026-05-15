@@ -66,6 +66,24 @@ Config load_config() {
                                                       c.disk_warn_pct);
     c.disk_reject_pct        = env_int<std::uint8_t>("NL_ROUTER_DISK_REJECT_PCT",
                                                       c.disk_reject_pct);
+
+    // TLS knobs. tls_enabled accepts the usual truthy spellings.
+    if (const char* v = std::getenv("NL_ROUTER_TLS_ENABLED"); v && *v) {
+        const std::string s{v};
+        c.tls_enabled = (s == "1" || s == "true" || s == "TRUE" || s == "yes" || s == "on");
+    }
+    c.tls_listen_port         = env_int<std::uint16_t>("NL_ROUTER_TLS_LISTEN_PORT",
+                                                        c.tls_listen_port);
+    c.tls_cert_file           = env_or("NL_ROUTER_TLS_CERT_FILE", c.tls_cert_file);
+    c.tls_key_file            = env_or("NL_ROUTER_TLS_KEY_FILE",  c.tls_key_file);
+    c.tls_ca_file             = env_or("NL_ROUTER_TLS_CA_FILE",   c.tls_ca_file);
+    if (const char* v = std::getenv("NL_ROUTER_TLS_REQUIRE_CLIENT_CERT"); v && *v) {
+        const std::string s{v};
+        c.tls_require_client_cert =
+            (s == "1" || s == "true" || s == "TRUE" || s == "yes" || s == "on");
+    }
+    c.tls_profile             = env_or("NL_ROUTER_TLS_PROFILE", c.tls_profile);
+
     c.log_level              = env_or("NL_ROUTER_LOG_LEVEL", c.log_level);
     return c;
 }

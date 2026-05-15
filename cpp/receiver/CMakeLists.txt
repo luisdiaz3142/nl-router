@@ -40,6 +40,7 @@ add_executable(nl-receiver
     src/server.cpp
     src/metrics.cpp
     src/disk_guard.cpp
+    src/tls_layer.cpp
 )
 
 target_include_directories(nl-receiver PRIVATE

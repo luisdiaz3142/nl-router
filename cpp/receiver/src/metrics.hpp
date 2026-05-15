@@ -5,7 +5,7 @@
 // the receiver just touches the typed handles.
 //
 // Catalog (per design plan):
-//   nl_receiver_associations_total{result}                  counter
+//   nl_receiver_associations_total{result,peer_type}       counter
 //   nl_receiver_associations_active                          gauge
 //   nl_receiver_workers_busy                                 gauge
 //   nl_receiver_workers_total                                gauge

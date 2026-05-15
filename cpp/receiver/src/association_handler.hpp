@@ -33,7 +33,8 @@ class AssociationHandler : public DcmSCP {
 public:
     AssociationHandler(const Config& cfg, Db& db,
                        const ReceiverMetrics& metrics,
-                       const DiskGuard* disk_guard);
+                       const DiskGuard* disk_guard,
+                       std::string peer_type);   // "plain" | "tls"
     ~AssociationHandler() override = default;
 
     AssociationHandler(const AssociationHandler&)            = delete;
@@ -72,6 +73,7 @@ private:
     Db&           db_;
     const ReceiverMetrics& metrics_;
     const DiskGuard*       disk_guard_;
+    std::string            peer_type_;
     std::map<std::string, StudyState> studies_;
     std::chrono::system_clock::time_point assoc_start_;
 

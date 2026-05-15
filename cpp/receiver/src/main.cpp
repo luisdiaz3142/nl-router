@@ -29,6 +29,7 @@
 #include "logging.hpp"
 #include "metrics.hpp"
 #include "server.hpp"
+#include "tls_layer.hpp"
 
 #include "nl_router/metrics/exposer.hpp"
 #include "nl_router/metrics/registry.hpp"
@@ -73,6 +74,9 @@ int main(int /*argc*/, char** /*argv*/) {
             "disk_poll_int_s",  std::to_string(cfg.disk_poll_interval_s),
             "disk_warn_pct",    std::to_string(cfg.disk_warn_pct),
             "disk_reject_pct",  std::to_string(cfg.disk_reject_pct),
+            "tls_enabled",      cfg.tls_enabled ? std::string{"true"} : std::string{"false"},
+            "tls_listen_port",  cfg.tls_enabled ? std::to_string(cfg.tls_listen_port)
+                                                : std::string{"-"},
             "log_level",        cfg.log_level);
 
         // Make sure the landing zone exists. The cleaner handles eventual
@@ -117,7 +121,24 @@ int main(int /*argc*/, char** /*argv*/) {
         disk_guard.start();
         g_disk_guard.store(&disk_guard);
 
-        nlr::Server server(cfg, db, metrics, &disk_guard);
+        // ---- Optional TLS layer ----
+        // Constructed only when tls_enabled=true; failures (bad
+        // cert/key/profile) throw and prevent the receiver from starting
+        // rather than silently degrading to plain-only.
+        std::unique_ptr<nlr::TlsLayer> tls_layer;
+        if (cfg.tls_enabled) {
+            nlr::TlsConfig tcfg;
+            tcfg.enabled             = true;
+            tcfg.listen_port         = cfg.tls_listen_port;
+            tcfg.cert_file           = cfg.tls_cert_file;
+            tcfg.key_file            = cfg.tls_key_file;
+            tcfg.ca_file             = cfg.tls_ca_file;
+            tcfg.require_client_cert = cfg.tls_require_client_cert;
+            tcfg.profile             = cfg.tls_profile;
+            tls_layer = std::make_unique<nlr::TlsLayer>(tcfg);
+        }
+
+        nlr::Server server(cfg, db, metrics, &disk_guard, tls_layer.get());
 
         g_server.store(&server);
         install_signal_handlers();

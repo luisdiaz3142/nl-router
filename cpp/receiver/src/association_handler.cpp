@@ -32,8 +32,10 @@ namespace nlr {
 
 AssociationHandler::AssociationHandler(const Config& cfg, Db& db,
                                         const ReceiverMetrics& metrics,
-                                        const DiskGuard* disk_guard)
-    : cfg_(cfg), db_(db), metrics_(metrics), disk_guard_(disk_guard) {}
+                                        const DiskGuard* disk_guard,
+                                        std::string peer_type)
+    : cfg_(cfg), db_(db), metrics_(metrics), disk_guard_(disk_guard),
+      peer_type_(std::move(peer_type)) {}
 
 void AssociationHandler::notifyAssociationRequest(
     const T_ASC_Parameters& params,
@@ -58,7 +60,7 @@ void AssociationHandler::notifyAssociationRequest(
             "called_aet",  called,
             "peer",        peer);
 
-        metrics_.associations_total.labels({"rejected_disk_full"}).inc();
+        metrics_.associations_total.labels({"rejected_disk_full", peer_type_}).inc();
         desired_action = DCMSCP_ACTION_REFUSE_ASSOCIATION;
         return;
     }
@@ -157,7 +159,7 @@ void AssociationHandler::snapshot_network_context_() {
     // because that hook isn't cleanly overridable in DCMTK 3.6.x; reaching
     // handleIncomingCommand means negotiation completed and the peer is
     // talking DIMSE, which is the operational definition of "accepted."
-    metrics_.associations_total.labels({"accepted"}).inc();
+    metrics_.associations_total.labels({"accepted", peer_type_}).inc();
     metrics_.associations_active.self().inc();
     // v1 single-threaded model — busy reflects the single in-flight assoc.
     metrics_.workers_busy.self().inc();
@@ -165,7 +167,8 @@ void AssociationHandler::snapshot_network_context_() {
     LOG_INFO("association.accept",
         "calling_aet", calling_aet_,
         "called_aet",  called_aet_,
-        "peer_ip",     peer_ip_);
+        "peer_ip",     peer_ip_,
+        "peer_type",   peer_type_);
 }
 
 OFCondition AssociationHandler::handleIncomingCommand(
