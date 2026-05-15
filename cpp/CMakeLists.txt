@@ -65,10 +65,10 @@ add_subdirectory(common)
 add_subdirectory(receiver)
 add_subdirectory(router)
 add_subdirectory(dispatcher)
+add_subdirectory(cleaner)
 
 # Future:
 #   add_subdirectory(getdcmtags)
-#   add_subdirectory(cleaner)
 #   add_subdirectory(modules)
 
 # ---- Status summary -----------------------------------------------------
