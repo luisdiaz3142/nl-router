@@ -43,7 +43,20 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
-find_package(CURL REQUIRED)
+# libcurl >= 7.75.0 is required for CURLOPT_AWS_SIGV4 (used by the
+# object_storage handler). On macOS the Apple SDK ships older curl
+# headers even when the runtime libcurl is current — point CMake at
+# the Homebrew curl explicitly when it's available.
+if(APPLE)
+    foreach(_curl_prefix /opt/homebrew/opt/curl /usr/local/opt/curl)
+        if(EXISTS "${_curl_prefix}/include/curl/curl.h")
+            set(CURL_ROOT "${_curl_prefix}" CACHE PATH "Homebrew curl root")
+            list(APPEND CMAKE_PREFIX_PATH "${_curl_prefix}")
+            break()
+        endif()
+    endforeach()
+endif()
+find_package(CURL 7.75.0 REQUIRED)
 
 add_executable(nl-dispatch
     src/main.cpp
@@ -58,6 +71,7 @@ add_executable(nl-dispatch
     src/dicomweb_stow_handler.cpp
     src/gcp_oauth.cpp
     src/gcp_dicomweb_handler.cpp
+    src/object_storage_handler.cpp
     src/factory.cpp
     src/template.cpp
     src/worker.cpp
@@ -68,6 +82,12 @@ target_include_directories(nl-dispatch PRIVATE
     src
     ${PostgreSQL_INCLUDE_DIRS}
 )
+
+# Apple's SDK has an older curl/curl.h that lacks CURLOPT_AWS_SIGV4; force
+# the find_package result (brewed curl) ahead of -isysroot's lookups.
+if(APPLE AND CURL_INCLUDE_DIRS)
+    target_include_directories(nl-dispatch BEFORE PRIVATE ${CURL_INCLUDE_DIRS})
+endif()
 
 target_link_libraries(nl-dispatch PRIVATE
     DCMTK::DCMTK

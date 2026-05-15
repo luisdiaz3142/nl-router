@@ -60,6 +60,34 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # S3-compatible object store for `object_storage` destination dev/testing.
+  # Production deployments point the dispatcher at AWS S3 / GCS interop /
+  # Backblaze B2 / any other SigV4-compatible target.
+  minio:
+    image: minio/minio:latest
+    container_name: nl-router-minio
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+    environment:
+      MINIO_ROOT_USER:     nlrouter
+      MINIO_ROOT_PASSWORD: nlrouter-secret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console (dev)
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout:  3s
+      retries:  10
+    restart: unless-stopped
+
 volumes:
   pgdata:
+    driver: local
+  miniodata:
     driver: local
