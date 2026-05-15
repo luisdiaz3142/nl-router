@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nl-router"
+version = "0.0.1"
+description = "DICOM router with centralized configuration, mercure/dicomdiablo-inspired routing model, and a multi-node deployment shape."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "TBD" }
+authors = [
+    { name = "Kevin Dietz", email = "kevin.dietz@newlantern.ai" },
+]
+keywords = ["dicom", "router", "pacs", "medical-imaging"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Healthcare Industry",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "typer>=0.12",                  # CLI framework (Click-based, type-hint-driven)
+    "rich>=13.7",                   # terminal formatting (tables, syntax highlighting)
+    "psycopg[binary,pool]>=3.1",    # Postgres driver (async + sync); binary wheels avoid libpq build
+    "pydantic>=2.6",                # config validation; FastAPI models in M4
+    "tomli-w>=1.0",                 # tomllib is stdlib for reads; we need a writer for config-export
+]
+
+# FastAPI / Uvicorn / Jinja2 / authlib / argon2-cffi are M4 (API) deps —
+# added in a separate optional group so the CLI install stays slim.
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "authlib>=1.3",
+    "argon2-cffi>=23.1",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+nl-router = "nl_router.cli:app"
+
+# ---- hatchling source layout ---------------------------------------------
+# Source lives in python/nl_router/ (not at repo root) to keep Python out of
+# the way of C++ and packaging trees.
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/nl_router"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "python/nl_router/**/*",
+    "migrations/**/*",
+    "README.md",
+    "pyproject.toml",
+]
+
+# ---- ruff (formatter + linter) -------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+ignore = ["E501"]   # line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---- mypy ----------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# ---- pytest --------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["python/tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]
