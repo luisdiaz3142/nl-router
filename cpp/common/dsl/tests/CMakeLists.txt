@@ -11,6 +11,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
+# Catch2's own source files trip our pedantic warning flags
+# (-Wnon-virtual-dtor, -Wsign-conversion). Those are issues for Catch2 to
+# fix upstream; we silence them on the third-party targets so our own
+# build stays clean.
+foreach(_catch2_target IN ITEMS Catch2 Catch2WithMain)
+    if(TARGET ${_catch2_target})
+        target_compile_options(${_catch2_target} PRIVATE
+            -Wno-non-virtual-dtor
+            -Wno-sign-conversion
+            -Wno-conversion
+            -Wno-shadow
+            -Wno-old-style-cast
+        )
+    endif()
+endforeach()
+
 # Catch2 ships CMake helpers (catch_discover_tests) via its cmake dir.
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
