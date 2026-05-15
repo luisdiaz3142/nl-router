@@ -1,19 +1,27 @@
-"""CRUD endpoints for routing rules.
+"""CRUD endpoints for routing rules + rule↔destination bindings.
 
-These thinly wrap SQL on the `rules` table. The router daemon picks up
-changes on its next rule-cache refresh (default 15s) — there's no
-NOTIFY-driven invalidation yet. That arrives in a follow-up.
+These thinly wrap SQL on the `rules` table and the `rule_destinations`
+join. The router daemon picks up changes on its next rule-cache refresh
+(default 15s) — there's no NOTIFY-driven invalidation yet. That arrives
+in a follow-up.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from nl_router.api.audit import emit_audit
 from nl_router.api.auth import AuthContext, require
-from nl_router.api.models import RuleCreate, RuleOut, RuleUpdate
+from nl_router.api.models import (
+    RuleCreate,
+    RuleDestinationBind,
+    RuleDestinationOut,
+    RuleOut,
+    RuleUpdate,
+)
 from nl_router.db import pool
 
 router = APIRouter(prefix="/rules", tags=["rules"])
@@ -234,3 +242,156 @@ def _scalarize(d: dict[str, Any]) -> dict[str, Any]:
     """Make a dict JSON-safe for audit storage. Mostly a no-op; only the
     enum values arrive as Python strings already."""
     return {k: (str(v) if hasattr(v, "value") else v) for k, v in d.items()}
+
+
+# ===========================================================================
+# Rule ↔ destination bindings (rule_destinations join table)
+# ===========================================================================
+
+
+def _row_to_binding(row: dict[str, Any]) -> RuleDestinationOut:
+    return RuleDestinationOut(
+        id=row["id"],
+        rule_id=row["rule_id"],
+        destination_id=row["destination_id"],
+        destination_name=row["destination_name"],
+        destination_kind=row["destination_kind"],
+        ordinal=row["ordinal"],
+        retry_policy_override=row.get("retry_policy_override"),
+    )
+
+
+@router.get("/{rule_id}/destinations", response_model=list[RuleDestinationOut])
+def list_rule_destinations(
+    rule_id: int,
+    _: AuthContext = Depends(require("rules.read")),
+) -> list[RuleDestinationOut]:
+    """List destinations bound to a rule, ordered by ordinal."""
+    with pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM rules WHERE id = %s", (rule_id,))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rule not found")
+        cur.execute(
+            """
+            SELECT rd.id, rd.rule_id, rd.destination_id, rd.ordinal,
+                   rd.retry_policy_override,
+                   d.name AS destination_name, d.kind AS destination_kind
+              FROM rule_destinations rd
+              JOIN destinations d ON d.id = rd.destination_id
+             WHERE rd.rule_id = %s
+             ORDER BY rd.ordinal, d.name
+            """,
+            (rule_id,),
+        )
+        return [_row_to_binding(r) for r in cur.fetchall()]
+
+
+@router.put(
+    "/{rule_id}/destinations/{destination_id}",
+    response_model=RuleDestinationOut,
+    status_code=status.HTTP_200_OK,
+)
+def bind_destination(
+    rule_id: int,
+    destination_id: int,
+    body: RuleDestinationBind,
+    req: Request,
+    ctx: AuthContext = Depends(require("rules.write")),
+) -> RuleDestinationOut:
+    """Bind a destination to a rule (create-or-update).
+
+    PUT semantics: if the binding already exists, ordinal /
+    retry_policy_override are updated; if not, a new binding row is
+    inserted. Either way the response is the resulting binding.
+    """
+    override_json = json.dumps(body.retry_policy_override) if body.retry_policy_override else None
+
+    with pool().connection() as conn, conn.cursor() as cur:
+        # Existence checks let us return clean 404s before the FK insert
+        # would otherwise translate them to opaque 23503 errors.
+        cur.execute("SELECT 1 FROM rules WHERE id = %s", (rule_id,))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rule not found")
+        cur.execute("SELECT 1 FROM destinations WHERE id = %s", (destination_id,))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="destination not found")
+
+        # Upsert. ON CONFLICT (rule_id, destination_id) uses the unique
+        # constraint declared in migration 0003.
+        cur.execute(
+            """
+            INSERT INTO rule_destinations (rule_id, destination_id, ordinal, retry_policy_override)
+            VALUES (%s, %s, %s, %s::jsonb)
+            ON CONFLICT (rule_id, destination_id) DO UPDATE
+              SET ordinal               = EXCLUDED.ordinal,
+                  retry_policy_override = EXCLUDED.retry_policy_override
+            RETURNING id, rule_id, destination_id, ordinal, retry_policy_override
+            """,
+            (rule_id, destination_id, body.ordinal, override_json),
+        )
+        upserted = cur.fetchone()
+
+        # Re-fetch with the destination join so the response shape matches list.
+        cur.execute(
+            """
+            SELECT rd.id, rd.rule_id, rd.destination_id, rd.ordinal,
+                   rd.retry_policy_override,
+                   d.name AS destination_name, d.kind AS destination_kind
+              FROM rule_destinations rd
+              JOIN destinations d ON d.id = rd.destination_id
+             WHERE rd.id = %s
+            """,
+            (upserted["id"],),
+        )
+        row = cur.fetchone()
+
+        emit_audit(
+            conn,
+            actor=ctx,
+            action="rule.destination.bind",
+            resource_kind="rule",
+            resource_id=str(rule_id),
+            diff={
+                "destination_id": destination_id,
+                "ordinal": body.ordinal,
+                "retry_policy_override": body.retry_policy_override,
+            },
+            client_ip=_client_ip(req),
+            user_agent=_ua(req),
+        )
+        conn.commit()
+    return _row_to_binding(row)
+
+
+@router.delete(
+    "/{rule_id}/destinations/{destination_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def unbind_destination(
+    rule_id: int,
+    destination_id: int,
+    req: Request,
+    ctx: AuthContext = Depends(require("rules.write")),
+) -> None:
+    """Remove a destination from a rule. Idempotent: 204 either way as
+    long as the rule exists."""
+    with pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM rules WHERE id = %s", (rule_id,))
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rule not found")
+        cur.execute(
+            "DELETE FROM rule_destinations WHERE rule_id = %s AND destination_id = %s",
+            (rule_id, destination_id),
+        )
+        emit_audit(
+            conn,
+            actor=ctx,
+            action="rule.destination.unbind",
+            resource_kind="rule",
+            resource_id=str(rule_id),
+            diff={"destination_id": destination_id},
+            client_ip=_client_ip(req),
+            user_agent=_ua(req),
+        )
+        conn.commit()

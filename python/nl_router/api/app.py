@@ -15,7 +15,15 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from nl_router import __version__
-from nl_router.api.routes import destinations, health, rules
+from nl_router.api.routes import (
+    assignments,
+    audit,
+    destinations,
+    health,
+    rules,
+    tokens,
+    workqueue,
+)
 from nl_router.db import pool
 
 log = logging.getLogger("nl_router.api")
@@ -56,8 +64,12 @@ def create_app() -> FastAPI:
 
     # Routes
     app.include_router(health.router)                              # /healthz, /readyz
-    app.include_router(rules.router,        prefix="/api/v1")      # /api/v1/rules
+    app.include_router(rules.router,        prefix="/api/v1")      # /api/v1/rules (+ /destinations bindings)
     app.include_router(destinations.router, prefix="/api/v1")      # /api/v1/destinations
+    app.include_router(workqueue.router,    prefix="/api/v1")      # /api/v1/workqueue
+    app.include_router(assignments.router,  prefix="/api/v1")      # /api/v1/assignments
+    app.include_router(audit.router,        prefix="/api/v1")      # /api/v1/audit
+    app.include_router(tokens.router,       prefix="/api/v1")      # /api/v1/tokens
 
     return app
 
