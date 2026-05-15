@@ -1,10 +1,15 @@
 # Build artifacts
 build/
+cpp/build/
 cmake-build-*/
 *.o
 *.a
 *.so
 *.dylib
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+_deps/
 
 # Python
 __pycache__/
