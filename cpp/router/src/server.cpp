@@ -157,17 +157,27 @@ void Server::evaluate_row_(const ClaimedRow& row) {
         try {
             const int n = db_.insert_route_assignments(row.id, cr.id, cfg_.server_id);
             assignments_total += n;
+
+            // Per-rule processing chain. Each entry in
+            // rule_processing_chain becomes one processing_jobs row,
+            // with input/output paths pre-computed so the modules don't
+            // have to negotiate ordering at runtime.
+            const int p = db_.insert_processing_jobs(
+                row.id, cr.id, cfg_.server_id,
+                row.file_root_path, cfg_.processing_root);
+
             LOG_INFO("router.rule_matched",
-                "work_queue_id", std::to_string(row.id),
-                "rule_id",       std::to_string(cr.id),
-                "rule_name",     cr.name,
-                "assignments",   std::to_string(n));
+                "work_queue_id",  std::to_string(row.id),
+                "rule_id",        std::to_string(cr.id),
+                "rule_name",      cr.name,
+                "assignments",    std::to_string(n),
+                "processing_jobs", std::to_string(p));
         } catch (const std::exception& e) {
             // DB insert failure here is recoverable for other rules, but we
             // should mark the row failed so the operator notices.
             eval_error = true;
-            error_msg  = std::string{"insert_route_assignments: "} + e.what();
-            LOG_ERROR("router.insert_assignments_failed",
+            error_msg  = std::string{"insert assignments/jobs: "} + e.what();
+            LOG_ERROR("router.insert_failed",
                 "work_queue_id", std::to_string(row.id),
                 "rule_id",       std::to_string(cr.id),
                 "error",         e.what());
@@ -179,7 +189,10 @@ void Server::evaluate_row_(const ClaimedRow& row) {
         if (eval_error) {
             db_.mark_failed(row.id, error_msg);
         } else {
-            db_.mark_routed(row.id);
+            // finalize_routing inspects processing_jobs and picks
+            // 'processing' (Processor takes it next) or 'routed'
+            // (Dispatcher can act immediately).
+            db_.finalize_routing(row.id);
         }
     } catch (const std::exception& e) {
         // Worst case: claim columns stay set until the lease expires and a

@@ -21,6 +21,14 @@ struct Config {
     // libpq DSN to the central config + work_queue database.
     std::string database_url;
 
+    // Root directory where processing modules write their intermediate
+    // outputs. Each work_queue row gets a subdirectory; each ordinal in
+    // the chain gets a sub-subdirectory. The Router pre-computes the
+    // full path tree at job-creation time and writes it into
+    // processing_jobs.input_path / output_path so workers don't have to
+    // negotiate the ordering at runtime.
+    std::string processing_root {"/var/lib/nl-router/processing"};
+
     // How long an idle poll cycle sleeps when work_queue is empty.
     // LISTEN/NOTIFY-based wake-up lands in a follow-up; for now we just poll.
     std::uint32_t poll_interval_ms {500};

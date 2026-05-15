@@ -84,16 +84,23 @@ void apply_retry_policy(Destination& d, const std::string& retry_text) {
 // ---- claim assignments -------------------------------------------------
 //
 // `dispatch_kind` is denormalized on route_assignments so we filter purely
-// on that column (no join needed). Status eligibility includes 'pending'
-// and 'failed' where next_retry_at has hit.
+// on that column. The work_queue join gates dispatch on the row's overall
+// state — rows still in 'processing' are intentionally invisible so the
+// Dispatcher cannot send pre-processing copies. Eligible work_queue
+// states:
+//   * 'routed'    — no processing chain configured (Router skipped the
+//                    Processor phase)
+//   * 'processed' — Processor finished the chain
 //
 // Args: $1 destination_id, $2 server_id, $3 batch, $4 worker_id, $5 lease_s
 constexpr const char* kClaimAssignmentsSql = R"SQL(
 WITH picked AS (
     SELECT ra.id
       FROM route_assignments ra
+      JOIN work_queue        w  ON w.id = ra.work_queue_id
      WHERE ra.destination_id = $1
        AND ra.server_id      = $2
+       AND w.status IN ('routed','processed')
        AND (ra.status = 'pending'
             OR (ra.status = 'failed' AND ra.next_retry_at IS NOT NULL
                                      AND ra.next_retry_at <= NOW()))

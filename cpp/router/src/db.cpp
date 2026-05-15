@@ -70,7 +70,8 @@ RETURNING w.id,
           w.calling_aet,
           w.called_aet,
           host(w.peer_ip) AS peer_ip_text,
-          w.tags::text     AS tags_text
+          w.tags::text     AS tags_text,
+          w.file_root_path
 )SQL";
 
 // ---- Insert route_assignments for one rule ------------------------------
@@ -87,10 +88,66 @@ SELECT $1, rd.rule_id, rd.destination_id,
    AND d.enabled = TRUE
 )SQL";
 
-// ---- Status transitions -------------------------------------------------
-constexpr const char* kMarkRoutedSql = R"SQL(
+// ---- Insert processing_jobs from rule_processing_chain ------------------
+// We compute input_path/output_path here in SQL using a CTE so the chain
+// is ordered consistently with rule_processing_chain.ordinal. Each row's
+// input is the previous row's output (lag()); the first row's input is
+// the study root that the Router passes in.
+//
+// Args:
+//   $1 work_queue_id   bigint
+//   $2 rule_id         bigint
+//   $3 server_id       text
+//   $4 study_file_root text     (initial input for ordinal=0)
+//   $5 processing_root text     (e.g. /var/lib/nl-router/processing)
+constexpr const char* kInsertProcessingJobsSql = R"SQL(
+WITH chain AS (
+    SELECT rpc.module_id,
+           rpc.ordinal,
+           rpc.config_override,
+           pm.kind   AS module_kind,
+           pm.config AS module_config_default
+      FROM rule_processing_chain rpc
+      JOIN processing_modules pm ON pm.id = rpc.module_id
+     WHERE rpc.rule_id = $2
+       AND pm.enabled  = TRUE
+     ORDER BY rpc.ordinal
+),
+paths AS (
+    SELECT
+        c.*,
+        format('%s/%s/%s-%s', $5::text, $1::text, c.ordinal::text, c.module_kind)
+            AS my_output,
+        lag(format('%s/%s/%s-%s', $5::text, $1::text, c.ordinal::text, c.module_kind))
+            OVER (ORDER BY c.ordinal)
+            AS prev_output
+      FROM chain c
+)
+INSERT INTO processing_jobs (
+    work_queue_id, rule_id, module_id, module_kind, ordinal,
+    server_id, input_path, output_path, config, status
+)
+SELECT $1::bigint, $2::bigint,
+       paths.module_id, paths.module_kind, paths.ordinal,
+       $3,
+       COALESCE(paths.prev_output, $4)               AS input_path,
+       paths.my_output                                AS output_path,
+       COALESCE(paths.config_override, paths.module_config_default, '{}'::jsonb) AS config,
+       'pending'::job_status
+  FROM paths
+)SQL";
+
+// Finalize routing: advance to 'processing' if any jobs were inserted for
+// this work_queue row, else 'routed'. EXISTS lookup keeps the cost
+// bounded.
+constexpr const char* kFinalizeRoutingSql = R"SQL(
 UPDATE work_queue
-   SET status           = 'routed',
+   SET status = CASE
+                  WHEN EXISTS (SELECT 1 FROM processing_jobs
+                                 WHERE work_queue_id = $1)
+                       THEN 'processing'::work_status
+                  ELSE 'routed'::work_status
+                END,
        routed_at        = NOW(),
        claimed_by       = NULL,
        claimed_at       = NULL,
@@ -100,6 +157,7 @@ UPDATE work_queue
  WHERE id = $1
 )SQL";
 
+// ---- Status transitions -------------------------------------------------
 constexpr const char* kMarkFailedSql = R"SQL(
 UPDATE work_queue
    SET status           = 'failed',
@@ -205,13 +263,51 @@ std::vector<ClaimedRow> Db::claim_received_rows(const std::string& server_id,
     for (int i = 0; i < n; ++i) {
         ClaimedRow row;
         row.id          = std::stoll(cell(r.r, i, 0));
-        row.calling_aet = cell(r.r, i, 1);
-        row.called_aet  = cell(r.r, i, 2);
-        row.peer_ip     = cell(r.r, i, 3);
-        row.tags_json   = cell(r.r, i, 4);
+        row.calling_aet    = cell(r.r, i, 1);
+        row.called_aet     = cell(r.r, i, 2);
+        row.peer_ip        = cell(r.r, i, 3);
+        row.tags_json      = cell(r.r, i, 4);
+        row.file_root_path = cell(r.r, i, 5);
         out.push_back(std::move(row));
     }
     return out;
+}
+
+int Db::insert_processing_jobs(std::int64_t work_queue_id,
+                                std::int64_t rule_id,
+                                const std::string& server_id,
+                                const std::string& study_file_root,
+                                const std::string& processing_root) {
+    ensure_connected_();
+    const std::string wq  = std::to_string(work_queue_id);
+    const std::string rid = std::to_string(rule_id);
+    const char* params[] = {
+        wq.c_str(), rid.c_str(), server_id.c_str(),
+        study_file_root.c_str(), processing_root.c_str()
+    };
+    ResultGuard r{
+        PQexecParams(as_conn(conn_), kInsertProcessingJobsSql,
+                     5, nullptr, params, nullptr, nullptr, 0)
+    };
+    if (PQresultStatus(r.r) != PGRES_COMMAND_OK) {
+        throw DbError(std::string{"insert_processing_jobs: "} +
+                      PQerrorMessage(as_conn(conn_)));
+    }
+    return std::stoi(PQcmdTuples(r.r));
+}
+
+void Db::finalize_routing(std::int64_t work_queue_id) {
+    ensure_connected_();
+    const std::string idstr = std::to_string(work_queue_id);
+    const char* params[] = { idstr.c_str() };
+    ResultGuard r{
+        PQexecParams(as_conn(conn_), kFinalizeRoutingSql,
+                     1, nullptr, params, nullptr, nullptr, 0)
+    };
+    if (PQresultStatus(r.r) != PGRES_COMMAND_OK) {
+        throw DbError(std::string{"finalize_routing: "} +
+                      PQerrorMessage(as_conn(conn_)));
+    }
 }
 
 int Db::insert_route_assignments(std::int64_t work_queue_id,
@@ -232,20 +328,6 @@ int Db::insert_route_assignments(std::int64_t work_queue_id,
                       PQerrorMessage(as_conn(conn_)));
     }
     return std::stoi(PQcmdTuples(r.r));
-}
-
-void Db::mark_routed(std::int64_t work_queue_id) {
-    ensure_connected_();
-    const std::string idstr = std::to_string(work_queue_id);
-    const char* params[] = { idstr.c_str() };
-    ResultGuard r{
-        PQexecParams(as_conn(conn_), kMarkRoutedSql,
-                     1, nullptr, params, nullptr, nullptr, 0)
-    };
-    if (PQresultStatus(r.r) != PGRES_COMMAND_OK) {
-        throw DbError(std::string{"mark_routed: "} +
-                      PQerrorMessage(as_conn(conn_)));
-    }
 }
 
 void Db::mark_failed(std::int64_t work_queue_id, const std::string& error) {

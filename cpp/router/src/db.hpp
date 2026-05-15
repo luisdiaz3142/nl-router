@@ -48,6 +48,7 @@ struct ClaimedRow {
     std::string  called_aet;
     std::string  peer_ip;
     std::string  tags_json;        // jsonb rendered as text
+    std::string  file_root_path;   // landing-zone study dir (input for chain ordinal=0)
 };
 
 class Db {
@@ -87,8 +88,28 @@ public:
                                   std::int64_t rule_id,
                                   const std::string& server_id);
 
-    // Mark a row 'routed' (success) and clear claim columns.
-    void mark_routed(std::int64_t work_queue_id);
+    // Insert processing_jobs rows for every entry in the rule's
+    // rule_processing_chain, in ordinal order. Each job carries a
+    // pre-computed input/output path so the Processor doesn't have to
+    // reason about chain ordering at run time:
+    //
+    //   ordinal=0 → input  = study_file_root  (original landing-zone copy)
+    //                output = <processing_root>/<wq_id>/<ordinal>-<kind>/
+    //   ordinal>0 → input  = previous module's output
+    //                output = <processing_root>/<wq_id>/<ordinal>-<kind>/
+    //
+    // Returns the number of jobs inserted (zero if the rule has no chain).
+    int insert_processing_jobs(std::int64_t work_queue_id,
+                                std::int64_t rule_id,
+                                const std::string& server_id,
+                                const std::string& study_file_root,
+                                const std::string& processing_root);
+
+    // Finalize routing for a work_queue row. If any processing_jobs were
+    // inserted for this row, advance to status='processing' so the
+    // Processor takes it next; otherwise status='routed' so the
+    // Dispatcher can claim immediately.
+    void finalize_routing(std::int64_t work_queue_id);
 
     // Mark a row 'failed' with an error message (router-phase failure,
     // typically a rule that threw at eval time). Clears claim columns.

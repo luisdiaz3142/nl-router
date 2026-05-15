@@ -42,6 +42,7 @@ Config load_config() {
     c.server_id    = env_required("NL_ROUTER_SERVER_ID");
     c.database_url = env_required("NL_ROUTER_DATABASE_URL", "DATABASE_URL");
 
+    c.processing_root      = env_or("NL_ROUTER_PROCESSING_ROOT", c.processing_root);
     c.poll_interval_ms     = env_int<std::uint32_t>("NL_ROUTER_POLL_INTERVAL_MS", c.poll_interval_ms);
     c.batch_size           = env_int<std::uint32_t>("NL_ROUTER_BATCH_SIZE", c.batch_size);
     c.lease_seconds        = env_int<std::uint32_t>("NL_ROUTER_LEASE_SECONDS", c.lease_seconds);
