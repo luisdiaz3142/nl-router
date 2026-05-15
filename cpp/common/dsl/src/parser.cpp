@@ -438,7 +438,49 @@ template <> struct action<grammar::tuple_or_group> {
 
 // ---- parse() ------------------------------------------------------------
 
+// Hard limits enforced before handing source to PEGTL. The grammar is
+// recursive-descent and trivially stack-overflowable on deeply nested
+// expressions — a stack overflow is undefined behavior in C++, not an
+// exception, and the SIGSEGV would kill the router process. The
+// Python-side preflight in api/models.py applies the same limits for
+// the API path; this guards the routes that bypass the API (rule
+// inserts via psql, future migrations) and the cache-refresh path
+// re-parsing existing rules on every cycle.
+constexpr std::size_t kMaxSourceLength = 8 * 1024;   // bytes
+constexpr int         kMaxParenDepth   = 32;         // matches API preflight
+
+namespace {
+void check_source_limits(std::string_view source) {
+    if (source.size() > kMaxSourceLength) {
+        throw ParseError(
+            "predicate exceeds maximum length (" +
+                std::to_string(source.size()) + " > " +
+                std::to_string(kMaxSourceLength) + " bytes)",
+            1, 1);
+    }
+    // Linear scan: track paren depth, skip past string-literal contents.
+    int depth = 0, max_depth = 0;
+    char in_str = 0;
+    for (char c : source) {
+        if (in_str) {
+            if (c == in_str) in_str = 0;
+            continue;
+        }
+        if (c == '"' || c == '\'') in_str = c;
+        else if (c == '(') { ++depth; if (depth > max_depth) max_depth = depth; }
+        else if (c == ')') --depth;
+    }
+    if (max_depth > kMaxParenDepth) {
+        throw ParseError(
+            "predicate nesting depth " + std::to_string(max_depth) +
+                " exceeds limit " + std::to_string(kMaxParenDepth),
+            1, 1);
+    }
+}
+}  // namespace
+
 ExprPtr parse(std::string_view source) {
+    check_source_limits(source);
     pegtl::memory_input in(source.data(), source.size(), "rule");
     State state;
     try {

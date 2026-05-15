@@ -69,8 +69,11 @@ def mint_token() -> tuple[str, str]:
 
     The raw token is shown to the operator once; only the hash is stored
     and looked up on auth.
+
+    secrets.token_urlsafe(32) yields 32 random bytes (256 bits of
+    entropy from os.urandom) encoded as URL-safe base64; the printed
+    form is ``nlr_<43-char-base64url>``.
     """
-    raw_bytes = secrets.token_bytes(32)
     raw_token = "nlr_" + secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     return raw_token, token_hash
@@ -153,10 +156,20 @@ async def auth_required(
                 detail="invalid or revoked token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        # Update last_used_at; ignore failure (it's diagnostic only).
+        # Update last_used_at — but throttle to at most once per minute
+        # per token. Without the throttle, every authenticated request
+        # takes a row lock and triggers a WAL write, which becomes a
+        # write storm at API request rates. The design plan calls for
+        # "no more than once per minute per credential" on the
+        # credentials.last_used_at audit; same applies here. Failure is
+        # ignored (it's diagnostic only).
         try:
             cur.execute(
-                "UPDATE api_tokens SET last_used_at = now() WHERE id = %s",
+                "UPDATE api_tokens "
+                "   SET last_used_at = now() "
+                " WHERE id = %s "
+                "   AND (last_used_at IS NULL "
+                "        OR last_used_at < now() - interval '1 minute')",
                 (row["id"],),
             )
             conn.commit()

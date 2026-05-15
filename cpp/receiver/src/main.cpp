@@ -68,6 +68,7 @@ int main(int /*argc*/, char** /*argv*/) {
             "server_id",        cfg.server_id,
             "host_aet",         cfg.host_aet,
             "listen_port",      std::to_string(cfg.listen_port),
+            "max_associations", std::to_string(cfg.max_associations),
             "landing_zone",     cfg.landing_zone,
             "metrics_port",     std::to_string(cfg.metrics_port),
             "metrics_bind",     cfg.metrics_bind_addr,

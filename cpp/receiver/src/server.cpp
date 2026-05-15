@@ -5,6 +5,7 @@
 #include <dcmtk/dcmnet/dimse.h>
 #include <dcmtk/dcmnet/scp.h>
 #include <dcmtk/dcmnet/scpcfg.h>
+#include <dcmtk/dcmnet/scppool.h>
 
 #include <string>
 #include <vector>
@@ -79,33 +80,36 @@ Server::Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics,
                 const DiskGuard* disk_guard, TlsLayer* tls_layer)
     : cfg_(cfg), db_(db), metrics_(metrics)
 {
-    // Plain listener — always present.
-    plain_handler_ = std::make_unique<AssociationHandler>(
-        cfg_, db_, metrics_, disk_guard, std::string{"plain"});
-    configure_presentation_contexts_(*plain_handler_, cfg_.listen_port);
+    // Wire up the per-process context the pool workers share. Done
+    // exactly once on the main thread before any pool starts accepting.
+    AssociationHandler::init_shared_context(cfg_, db_, metrics_, disk_guard);
 
-    // TLS listener — only if explicitly enabled and a layer is provided.
+    // ---- Plain pool -----------------------------------------------------
+    plain_pool_ = std::make_unique<PlainPool>();
+    plain_pool_->setMaxThreads(cfg_.max_associations);
+    configure_pool_config_(plain_pool_->getConfig(), cfg_.listen_port);
+
+    // ---- TLS pool (optional) -------------------------------------------
     if (cfg_.tls_enabled && tls_layer != nullptr) {
-        tls_handler_ = std::make_unique<AssociationHandler>(
-            cfg_, db_, metrics_, disk_guard, std::string{"tls"});
-        configure_presentation_contexts_(*tls_handler_, cfg_.tls_listen_port);
-
-        DcmSCPConfig& tls_scfg = tls_handler_->getConfig();
-        // setTransportLayer is non-owning; the TlsLayer instance must
-        // outlive this handler. main.cpp guarantees that ordering.
-        tls_scfg.setTransportLayer(tls_layer->layer());
+        tls_pool_ = std::make_unique<TlsPool>();
+        tls_pool_->setMaxThreads(cfg_.max_associations);
+        configure_pool_config_(tls_pool_->getConfig(), cfg_.tls_listen_port);
+        // setTransportLayer is non-owning; TlsLayer outlives this Server.
+        tls_pool_->getConfig().setTransportLayer(tls_layer->layer());
     }
 
-    // The single-threaded baseline reports one worker per listener.
-    // The bounded-pool upgrade (still M10 scope, follow-up commit) will
-    // set this to max_associations × #listeners and bump workers_busy
-    // from inside the pool dispatch.
-    metrics_.workers_total.self().set(tls_handler_ ? 2 : 1);
+    // workers_total is a static gauge — sum of both pools' max sizes.
+    // workers_busy ticks inside each handler's notify/terminate hooks
+    // (incremented on association accept, decremented at end) so this
+    // covers both plain and TLS naturally.
+    const std::int64_t total = static_cast<std::int64_t>(cfg_.max_associations)
+                                + (tls_pool_ ? cfg_.max_associations : 0u);
+    metrics_.workers_total.self().set(total);
 }
 
-void Server::configure_presentation_contexts_(AssociationHandler& handler,
-                                                std::uint16_t port) {
-    DcmSCPConfig& scfg = handler.getConfig();
+Server::~Server() = default;
+
+void Server::configure_pool_config_(DcmSCPConfig& scfg, std::uint16_t port) {
     scfg.setAETitle(cfg_.host_aet.c_str());
     scfg.setPort(port);
     scfg.setMaxReceivePDULength(cfg_.max_pdu_size);
@@ -114,15 +118,13 @@ void Server::configure_presentation_contexts_(AssociationHandler& handler,
     scfg.setDIMSETimeout(cfg_.association_timeout_s);
     scfg.setDIMSEBlockingMode(DIMSE_BLOCKING);
 
-    // Disable reverse-DNS on accepted connections. By default DcmSCP returns
-    // a hostname via getPeerIP() (it runs gethostbyaddr). We need a numeric
-    // IP so it can be inserted into the work_queue.peer_ip INET column
-    // without further lookup. Belt-and-suspenders: association_handler also
-    // resolves via getaddrinfo if a hostname slips through.
+    // Disable reverse-DNS on accepted connections. By default DcmSCP
+    // returns a hostname via getPeerIP() (it runs gethostbyaddr). We need
+    // a numeric IP so it can be inserted into the work_queue.peer_ip
+    // INET column without further lookup.
     scfg.setHostLookupEnabled(OFFalse);
 
-    // C-ECHO (Verification): accept on default transfer syntaxes. OFList has
-    // no initializer-list constructor; build via push_back.
+    // C-ECHO (Verification): accept on default transfer syntaxes.
     OFList<OFString> echo_ts;
     echo_ts.push_back(UID_LittleEndianExplicitTransferSyntax);
     echo_ts.push_back(UID_LittleEndianImplicitTransferSyntax);
@@ -131,7 +133,6 @@ void Server::configure_presentation_contexts_(AssociationHandler& handler,
     // C-STORE: each accepted SOP class gets the full transfer-syntax list.
     OFList<OFString> xfer_list;
     for (auto* ts : kAcceptedTransferSyntaxes) xfer_list.push_back(ts);
-
     for (auto* sop : kAcceptedStorageSopClasses) {
         scfg.addPresentationContext(sop, xfer_list);
     }
@@ -141,61 +142,46 @@ void Server::configure_presentation_contexts_(AssociationHandler& handler,
         "port",               std::to_string(port),
         "sop_classes",        std::to_string(kAcceptedStorageSopClasses.size()),
         "transfer_syntaxes",  std::to_string(kAcceptedTransferSyntaxes.size()),
-        "max_pdu",            std::to_string(cfg_.max_pdu_size));
+        "max_pdu",            std::to_string(cfg_.max_pdu_size),
+        "max_associations",   std::to_string(cfg_.max_associations));
 }
 
-int Server::run_listener_(AssociationHandler& handler, const char* tag) {
-    // DcmSCP::listen() is a single-association blocking loop. It returns
-    // when the association ends (success or error); we loop here to accept
-    // additional associations until told to stop.
-    //
-    // DCMTK doesn't expose a stable, version-portable "port unavailable" error
-    // code distinct from per-association faults. We treat repeated immediate
-    // errors as a fatal listen failure via a small failure counter.
-    int consecutive_errors = 0;
-    while (!stop_requested_.load(std::memory_order_relaxed)) {
-        OFCondition cond = handler.listen();
-        if (cond.bad()) {
-            LOG_WARN("scp.listen_error",
-                "listener", tag,
-                "error",    cond.text() ? cond.text() : "unknown");
-            if (++consecutive_errors >= 5) {
-                LOG_ERROR("scp.listen_giving_up",
-                    "listener",           tag,
-                    "consecutive_errors", std::to_string(consecutive_errors));
-                return 2;
-            }
-        } else {
-            consecutive_errors = 0;
-        }
+int Server::drive_pool_(DcmBaseSCPPool& pool, const char* tag) {
+    // DcmSCPPool::listen() is a blocking loop: it spawns workers on
+    // demand, accepts on the listening socket, dispatches each accepted
+    // association to an idle worker, and only returns on a fatal
+    // network error. We surface that condition; the caller turns it into
+    // an exit code.
+    const OFCondition cond = pool.listen();
+    if (cond.bad()) {
+        LOG_WARN("scp.pool_listen_error",
+            "listener", tag,
+            "error",    cond.text() ? cond.text() : "unknown");
+        return 2;
     }
     return 0;
 }
 
 int Server::run() {
     LOG_INFO("scp.listen",
-        "host_aet", cfg_.host_aet,
-        "port",     std::to_string(cfg_.listen_port),
-        "peer_type", "plain");
+        "host_aet",         cfg_.host_aet,
+        "port",             std::to_string(cfg_.listen_port),
+        "peer_type",        "plain",
+        "max_associations", std::to_string(cfg_.max_associations));
 
-    // If TLS is enabled, spin up a dedicated listener thread. The plain
-    // listener runs on the main thread because that's where M1 already
-    // ran it; the TLS listener is the new addition. Either listener can
-    // accept independently.
-    if (tls_handler_) {
+    if (tls_pool_) {
         LOG_INFO("scp.listen",
-            "host_aet", cfg_.host_aet,
-            "port",     std::to_string(cfg_.tls_listen_port),
-            "peer_type", "tls");
+            "host_aet",         cfg_.host_aet,
+            "port",             std::to_string(cfg_.tls_listen_port),
+            "peer_type",        "tls",
+            "max_associations", std::to_string(cfg_.max_associations));
         tls_thread_ = std::thread([this] {
-            (void)run_listener_(*tls_handler_, "tls");
+            (void)drive_pool_(*tls_pool_, "tls");
         });
     }
 
-    const int plain_rc = run_listener_(*plain_handler_, "plain");
+    const int plain_rc = drive_pool_(*plain_pool_, "plain");
 
-    // Plain listener returned (stop or fatal). Tell TLS listener to stop
-    // and wait for it.
     stop_requested_.store(true, std::memory_order_relaxed);
     if (tls_thread_.joinable()) tls_thread_.join();
 
@@ -205,9 +191,10 @@ int Server::run() {
 
 void Server::stop() noexcept {
     stop_requested_.store(true, std::memory_order_relaxed);
-    // DcmSCP doesn't have a clean "stop listening" hook; the next association
-    // attempt or the current accept blocking call will return when the OS
-    // socket is closed during process shutdown.
+    // DcmSCPPool exposes stopAfterCurrentAssociations() for graceful
+    // shutdown — current associations finish, no new ones accepted.
+    if (plain_pool_) plain_pool_->stopAfterCurrentAssociations();
+    if (tls_pool_)   tls_pool_->stopAfterCurrentAssociations();
 }
 
 }  // namespace nlr

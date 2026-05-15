@@ -118,18 +118,21 @@ def init(
     # ---- 4. Banner --------------------------------------------------------
     out.print("")
     out.rule("[green]nl-router ready[/green]")
-    if raw_token is not None:
-        out.print("[bold yellow]Bootstrap admin token — save now, not shown again:[/bold yellow]")
-        out.print(f"  [bold green]{raw_token}[/bold green]")
-        out.print("")
     out.print("[dim]Next steps:[/dim]")
     out.print("[dim]  sudo systemctl enable --now nl-router-api \\\\[/dim]")
     out.print("[dim]                              nl-router-receiver \\\\[/dim]")
     out.print("[dim]                              nl-router-route \\\\[/dim]")
     out.print("[dim]                              nl-router-dispatcher \\\\[/dim]")
     out.print("[dim]                              nl-router-cleaner[/dim]")
+
+    # Token is printed exactly once, last. We deliberately do NOT include
+    # it inside the `Next steps` block — operators sometimes copy/paste
+    # that block into shell history and we don't want the literal token
+    # to land there. Operators set their own env var separately.
     if raw_token is not None:
-        out.print(f"[dim]  export NL_ROUTER_TOKEN={raw_token}[/dim]")
+        out.print("")
+        out.print("[bold yellow]Bootstrap admin token — save now, not shown again:[/bold yellow]")
+        out.print(f"  [bold green]{raw_token}[/bold green]")
 
 
 # ---- Helpers --------------------------------------------------------------
@@ -157,23 +160,51 @@ def _ensure_kek(kek_path: Path) -> None:
     raw = secrets.token_bytes(32)
     encoded = base64.urlsafe_b64encode(raw).decode("ascii")
 
-    # Write with restrictive perms from the start (atomic create+chmod).
-    fd = os.open(str(kek_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    # Atomic write: create a sibling temp file, fsync it, then rename
+    # over the target. A crash mid-write would otherwise leave a
+    # truncated file that *might* base64-decode to a valid-looking but
+    # low-entropy KEK. The rename is atomic on POSIX filesystems.
+    tmp_path = kek_path.with_suffix(kek_path.suffix + ".tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
     try:
         os.write(fd, encoded.encode("ascii") + b"\n")
+        os.fsync(fd)
     finally:
         os.close(fd)
 
-    # chown to nl-router if running as root and the user exists. We
-    # silently skip on dev boxes that don't have an nl-router account.
+    # chown to nl-router before the rename so the target file shows up
+    # with the right ownership in one step. When running as root, refuse
+    # to proceed if the nl-router user doesn't exist — the service
+    # account is created by the .deb's preinstall, so its absence means
+    # we're on a misconfigured production host where the daemons won't
+    # be able to read the KEK we just wrote. On a non-root dev install
+    # the current user keeps ownership.
     if os.geteuid() == 0:
         try:
             entry = pwd.getpwnam("nl-router")
-            os.chown(kek_path, entry.pw_uid, entry.pw_gid)
         except KeyError:
-            # nl-router user not present (dev machine). The current
-            # owner (root) can still read it.
-            pass
+            # Clean up the temp file before failing.
+            tmp_path.unlink(missing_ok=True)
+            die(
+                "Running as root, but the 'nl-router' system user does not "
+                "exist. The package's postinstall creates this user; if you "
+                "got here without installing via .deb/.rpm/tarball, create "
+                "the user manually:\n"
+                "  groupadd --system nl-router\n"
+                "  useradd --system --gid nl-router --no-create-home "
+                "--shell /usr/sbin/nologin nl-router",
+                code=2,
+            )
+        os.chown(tmp_path, entry.pw_uid, entry.pw_gid)
+
+    os.rename(tmp_path, kek_path)
+
+    # Fsync the parent directory so the rename is durable.
+    dir_fd = os.open(str(kek_path.parent), os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
     out.print(f"  [green]→ KEK generated:[/green] {kek_path} [dim](0400)[/dim]")
 

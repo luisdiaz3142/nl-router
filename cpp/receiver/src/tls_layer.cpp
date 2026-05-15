@@ -1,5 +1,6 @@
 #include "tls_layer.hpp"
 
+#include <dcmtk/config/osconfig.h>     // PACKAGE_VERSION_NUMBER
 #include <dcmtk/dcmtls/tlsciphr.h>
 #include <dcmtk/dcmtls/tlsdefin.h>
 #include <dcmtk/dcmnet/assoc.h>
@@ -15,15 +16,14 @@ namespace {
 // Map our string knob to DCMTK's enum.
 //
 // Default for the receiver is bcp195_nd (Non-downgrading BCP 195) — TLS
-// 1.2 minimum, no fallback to older TLS, universally available across
-// DCMTK versions 3.6.6+. RFC 8996 / 8996_Modified are newer profiles
-// (DCMTK 3.6.9+) and only compiled in when the build container's DCMTK
-// supports them — see receiver/CMakeLists.txt for the feature check.
+// 1.2 minimum, universally available across DCMTK 3.6.6+. RFC 8996 and
+// RFC 8996_Modified are newer profiles (DCMTK 3.6.9+) and only compiled
+// in when DCMTK is new enough; we branch on PACKAGE_VERSION_NUMBER.
 DcmTLSSecurityProfile parse_profile(const std::string& s) {
     if (s == "bcp195_nd")           return TSP_Profile_BCP195_ND;
     if (s == "bcp195_ex")           return TSP_Profile_BCP195_Extended;
     if (s == "bcp195")              return TSP_Profile_BCP195;   // retired but kept for compat
-#ifdef NL_RECEIVER_HAS_BCP195_RFC8996
+#if PACKAGE_VERSION_NUMBER >= 369
     if (s == "bcp195_rfc8996")      return TSP_Profile_BCP_195_RFC_8996;
     if (s == "bcp195_rfc8996_mod")  return TSP_Profile_BCP_195_RFC_8996_Modified;
 #else
@@ -81,7 +81,7 @@ TlsLayer::TlsLayer(const TlsConfig& cfg) {
 
     check(tls_->setPrivateKeyFile(cfg.key_file.c_str(), kKeyFormat),
           "setPrivateKeyFile");
-#ifdef NL_RECEIVER_HAS_SETCERT_PROFILE
+#if PACKAGE_VERSION_NUMBER >= 369
     // 3-arg form (DCMTK 3.6.9+) validates cert algorithm against the
     // profile's ciphersuite list at load time — better diagnostics.
     check(tls_->setCertificateFile(cfg.cert_file.c_str(), kKeyFormat, profile),

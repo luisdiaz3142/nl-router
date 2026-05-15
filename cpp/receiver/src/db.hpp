@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -47,9 +48,13 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Thin libpq wrapper. Constructed once per process; `insert_work_queue_row`
-// is safe to call from the association thread. Auto-reconnects on transient
-// failures (one retry before bubbling up).
+// Thin libpq wrapper. Constructed once per process; safe to call
+// `insert_work_queue_row` from any pool worker thread — an internal
+// mutex serializes access to the single libpq connection (libpq's
+// PGconn is not thread-safe). Postgres-side INSERT latency dominates,
+// so the serialization is not a meaningful bottleneck for the
+// receiver's write rate. Auto-reconnects on transient failures (one
+// retry before bubbling up).
 class Db {
 public:
     explicit Db(const std::string& dsn);
@@ -77,6 +82,7 @@ private:
     std::string dsn_;
     void*       conn_ {nullptr};   // PGconn* — kept as void* to keep libpq
                                     // out of this header's includes
+    std::mutex  mu_;                // serializes every conn_ access
     const ReceiverMetrics* metrics_ {nullptr};
 };
 

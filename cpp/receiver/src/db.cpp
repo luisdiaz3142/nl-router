@@ -234,6 +234,14 @@ void Db::ensure_connected_() {
 }
 
 std::int64_t Db::insert_work_queue_row(const StudyRow& row) {
+    // Serialize on the single PGconn — libpq is not thread-safe at the
+    // connection level. The lock spans ensure_connected_, param binding,
+    // PQexecParams, and result inspection because all of those touch
+    // the shared connection. A per-thread connection pool would let
+    // calls run truly in parallel; INSERT latency on Postgres is
+    // dominated by transaction commit (~5-10ms) so the trade-off
+    // isn't materially constraining at 100-worker scale.
+    std::lock_guard<std::mutex> lk(mu_);
     ensure_connected_();
 
     // Latency observation around the actual PQexecParams call (excluding

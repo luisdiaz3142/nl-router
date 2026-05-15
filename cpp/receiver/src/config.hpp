@@ -33,6 +33,12 @@ struct Config {
     // Maximum PDU size advertised in association negotiation.
     std::uint32_t max_pdu_size {131072};
 
+    // Maximum concurrent associations per transport. The receiver runs
+    // one DcmSCPPool per transport (plain + optional TLS), each sized
+    // to this value. Plan default is 100; operators on small nodes may
+    // dial it down. With TLS enabled the effective ceiling is 2N.
+    std::uint16_t max_associations {100};
+
     // Per-association idle timeout in seconds. DCMTK closes the association
     // if no activity within this window. Prevents hung peers from holding
     // a slot. (v1 uses this as the only timeout; bounded thread pool with

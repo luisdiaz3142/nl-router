@@ -16,6 +16,7 @@ The KEK has its own precedence rule (file beats env) handled in
 from __future__ import annotations
 
 import os
+import stat
 import tomllib
 from dataclasses import dataclass, field
 from functools import cache
@@ -133,6 +134,45 @@ def load() -> BootstrapConfig:
     )
 
 
+def _verify_kek_file_perms(kek_path: Path) -> None:
+    """Refuse to load a KEK file with too-permissive mode bits.
+
+    Concretely: any group/other bits set, or world/other ownership when
+    we know the effective UID. The .deb postinstall creates this file
+    0400 nl-router:nl-router; this check catches operator drift (e.g.
+    `cp` losing permissions, an editor's umask, manual chmod). Failing
+    closed beats silently loading a world-readable secret.
+
+    On non-POSIX hosts (Windows) stat.st_mode doesn't carry the same
+    meaning; we skip the check. The Linux-only production path is what
+    matters for pilot.
+    """
+    if os.name != "posix":
+        return
+    st = kek_path.stat()
+    mode = st.st_mode
+
+    # Reject any permission for group or other.
+    bad_bits = mode & (stat.S_IRWXG | stat.S_IRWXO)
+    if bad_bits:
+        raise RuntimeError(
+            f"KEK file {kek_path} has insecure mode {oct(mode & 0o777)}; "
+            f"expected 0400 or 0600 owned by the service account. "
+            f"Fix with: chmod 0400 {kek_path} && chown nl-router:nl-router {kek_path}"
+        )
+
+    # Reject if owned by a different UID than us, unless we're root
+    # (root reading any file is fine; the threat is a non-service user
+    # having dropped a malicious KEK).
+    euid = os.geteuid()
+    if euid != 0 and st.st_uid != euid:
+        raise RuntimeError(
+            f"KEK file {kek_path} is owned by uid {st.st_uid}, but we are uid {euid}. "
+            f"Refusing to load a KEK we do not own."
+        )
+
+
+@cache
 def load_kek() -> bytes:
     """Resolve the KEK (master encryption key) from configured sources.
 
@@ -140,16 +180,20 @@ def load_kek() -> bytes:
     The KEK is 32 bytes; we expect either a raw 32-byte file or a
     base64url-encoded value (auto-detected by length).
 
-    Raises:
-        RuntimeError: if no KEK source is configured or the value is invalid.
-    """
-    import base64
+    Cached after first successful load — the KEK doesn't change at
+    runtime (rotation is a process restart). Caching avoids re-reading
+    the file (and re-statting permissions) on every encrypt/decrypt.
 
+    Raises:
+        RuntimeError: if no KEK source is configured, the file has
+                      insecure permissions, or the value is invalid.
+    """
     cfg = load()
 
     # File first.
     kek_path = cfg.kek_file or DEFAULT_KEK_FILE
     if kek_path.exists():
+        _verify_kek_file_perms(kek_path)
         data = kek_path.read_bytes()
         # Strip a trailing newline if someone `echo "..." > kek.key`'d.
         data = data.rstrip(b"\r\n")

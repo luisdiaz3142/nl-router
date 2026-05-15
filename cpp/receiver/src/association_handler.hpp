@@ -1,20 +1,40 @@
 // nl-receiver/association_handler.hpp
 //
-// Per-association handler. Inherits from DcmSCP and overrides the C-STORE
-// receive path to:
-//   1. Write each instance to disk in the planned UID-tree layout.
+// Per-association handler. Each pool worker thread creates an instance
+// of one of the AssociationHandler subclasses, runs it for the lifetime
+// of a single accepted DICOM association, then returns the slot to the
+// pool. Up to N associations (max_associations) can be in flight
+// simultaneously.
+//
+// Responsibilities, per association:
+//   1. Write each received SOP instance to disk in the UID-tree layout.
 //   2. Aggregate per-study state (tag extract, byte/instance counters).
-//   3. At association end, insert one work_queue row per unique study seen
-//      (close_trigger='assoc_end').
+//   3. At association end, insert one work_queue row per unique study
+//      seen (close_trigger='assoc_end').
+//   4. Refuse new associations when DiskGuard is in Reject state.
 //
 // C-ECHO falls through to DcmSCP's default handler.
 //
-// v1 is single-threaded: one association at a time. The bounded-pool /
-// listener split lands in M10 along with the metrics endpoint and TLS.
+// Threading model
+// ---------------
+// AssociationHandler extends DcmThreadSCP (the threaded-worker variant
+// of DcmSCP introduced in DCMTK 3.6.1). DcmSCPPool owns N pre-spawned
+// threads, each holding an AssociationHandler instance; the pool's
+// listener thread accepts TCP connections and dispatches each accepted
+// T_ASC_Association to the next idle worker via condvar. Excess
+// connections beyond pool capacity wait briefly on the kernel's listen
+// backlog and then time out at the SCU side — matching the design
+// plan's "reject A-ASSOCIATE-RJ when local-limit-exceeded" semantics.
+//
+// Because pool workers are default-constructed by DcmSCPPool, the
+// shared per-process context (Config, Db, Metrics, DiskGuard) is
+// injected once at startup via init_shared_context() and held as
+// static state. The peer_type label ("plain" / "tls") is per-subclass
+// since plain and TLS each get their own pool.
 
 #pragma once
 
-#include <dcmtk/dcmnet/scp.h>
+#include <dcmtk/dcmnet/scpthrd.h>
 
 #include <chrono>
 #include <map>
@@ -29,18 +49,28 @@ namespace nlr {
 
 class DiskGuard;
 
-class AssociationHandler : public DcmSCP {
+class AssociationHandler : public DcmThreadSCP {
 public:
-    AssociationHandler(const Config& cfg, Db& db,
-                       const ReceiverMetrics& metrics,
-                       const DiskGuard* disk_guard,
-                       std::string peer_type);   // "plain" | "tls"
+    AssociationHandler() = default;            // pool default-constructs
     ~AssociationHandler() override = default;
 
     AssociationHandler(const AssociationHandler&)            = delete;
     AssociationHandler& operator=(const AssociationHandler&) = delete;
 
+    // Wire up the long-lived per-process context the workers share. Must
+    // be called exactly once before any pool starts accepting. Idempotent
+    // for tests; not safe to call concurrently with active workers.
+    static void init_shared_context(const Config& cfg,
+                                    Db& db,
+                                    const ReceiverMetrics& metrics,
+                                    const DiskGuard* disk_guard);
+
 protected:
+    // "plain" / "tls" — set by the subclass; included in metric labels
+    // and the association.accept log line so dashboards can see TLS
+    // adoption per association.
+    virtual const std::string& peer_type() const = 0;
+
     // Called by DcmSCP after an association request is parsed but before
     // it's accepted. We override to refuse new associations when the
     // landing zone is too full (DiskGuard reports Reject). DCMTK then
@@ -69,11 +99,19 @@ private:
         std::string   landing_date;          // YYYY-MM-DD chosen at first instance
     };
 
-    const Config& cfg_;
-    Db&           db_;
-    const ReceiverMetrics& metrics_;
-    const DiskGuard*       disk_guard_;
-    std::string            peer_type_;
+    // Shared static context injected at startup. Pointers (not refs) so
+    // the default constructor doesn't need initialization syntax for
+    // them. Accessors guarantee the pointers are populated.
+    static const Config*           s_cfg_;
+    static Db*                     s_db_;
+    static const ReceiverMetrics*  s_metrics_;
+    static const DiskGuard*        s_disk_guard_;
+
+    static const Config&          cfg()        { return *s_cfg_; }
+    static Db&                    db()         { return *s_db_; }
+    static const ReceiverMetrics& metrics()    { return *s_metrics_; }
+    static const DiskGuard*       disk_guard() { return s_disk_guard_; }
+
     std::map<std::string, StudyState> studies_;
     std::chrono::system_clock::time_point assoc_start_;
 
@@ -88,6 +126,19 @@ private:
 
     void snapshot_network_context_();
     static std::string iso_now();
+};
+
+// Concrete subclasses — one per transport. Each pool is templated on
+// one of these so the peer_type() label is fixed per pool at compile
+// time and shows up correctly in metrics + logs.
+class PlainAssociationHandler : public AssociationHandler {
+protected:
+    const std::string& peer_type() const override;
+};
+
+class TlsAssociationHandler : public AssociationHandler {
+protected:
+    const std::string& peer_type() const override;
 };
 
 }  // namespace nlr

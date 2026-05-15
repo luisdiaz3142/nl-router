@@ -10,7 +10,69 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# Predicate preflight — a cheap structural check we run at the API
+# layer so obviously broken predicates never reach the rules table.
+# The router's PEGTL parser is the source of truth for "valid"; this
+# only catches three classes of malformed input:
+#
+#   1. Length-bomb DoS    — cap at 8 KiB. Real predicates are < 1 KiB.
+#   2. Depth-bomb DoS     — cap paren nesting at 32. PEGTL is
+#                           recursive-descent and stack-overflows on
+#                           unbounded depth.
+#   3. Obvious typos      — unbalanced parens or quotes.
+#
+# Full semantic validation (function/method names, type compatibility)
+# happens at the router on cache refresh and surfaces in the router log;
+# a future enhancement is to subprocess the router's validate-only mode
+# from this endpoint for a true server-side parse.
+
+_MAX_PREDICATE_LEN   = 8 * 1024     # bytes
+_MAX_PREDICATE_DEPTH = 32           # max nested parentheses
+
+
+def _validate_predicate_text(s: str) -> str:
+    if len(s) > _MAX_PREDICATE_LEN:
+        raise ValueError(
+            f"predicate exceeds maximum length "
+            f"({len(s)} > {_MAX_PREDICATE_LEN} bytes)"
+        )
+
+    # Track parenthesis depth + balanced quotes. A predicate inside a
+    # string literal can contain ( ) characters freely; we treat them
+    # as opaque until the string ends. Escapes inside strings are not
+    # interpreted — the DSL doesn't define an escape syntax.
+    depth = 0
+    max_depth = 0
+    in_str: str | None = None
+    for ch in s:
+        if in_str is not None:
+            if ch == in_str:
+                in_str = None
+            continue
+        if ch == '"' or ch == "'":
+            in_str = ch
+        elif ch == '(':
+            depth += 1
+            max_depth = max(max_depth, depth)
+        elif ch == ')':
+            depth -= 1
+            if depth < 0:
+                raise ValueError(
+                    "predicate has an unbalanced closing parenthesis"
+                )
+    if in_str is not None:
+        raise ValueError(f"predicate has an unterminated {in_str} string literal")
+    if depth != 0:
+        raise ValueError("predicate has unbalanced parentheses")
+    if max_depth > _MAX_PREDICATE_DEPTH:
+        raise ValueError(
+            f"predicate nesting depth {max_depth} exceeds "
+            f"limit {_MAX_PREDICATE_DEPTH}"
+        )
+    return s
 
 
 # ============================================================
@@ -33,6 +95,11 @@ class RuleBase(BaseModel):
     status: Literal["draft", "disabled", "enabled"] = Field(default="draft")
     dispatch_order: Literal["parallel", "sequential"] = Field(default="parallel")
 
+    @field_validator("predicate")
+    @classmethod
+    def _validate_predicate(cls, v: str) -> str:
+        return _validate_predicate_text(v)
+
 
 class RuleCreate(RuleBase):
     pass
@@ -51,6 +118,13 @@ class RuleUpdate(BaseModel):
     priority: int | None = None
     status: Literal["draft", "disabled", "enabled"] | None = None
     dispatch_order: Literal["parallel", "sequential"] | None = None
+
+    @field_validator("predicate")
+    @classmethod
+    def _validate_predicate(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_predicate_text(v)
 
 
 class RuleOut(RuleBase):

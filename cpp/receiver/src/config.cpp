@@ -56,6 +56,8 @@ Config load_config() {
     c.listen_port            = env_int<std::uint16_t>("NL_ROUTER_LISTEN_PORT", c.listen_port);
     c.landing_zone           = env_or("NL_ROUTER_LANDING_ZONE", c.landing_zone);
     c.max_pdu_size           = env_int<std::uint32_t>("NL_ROUTER_MAX_PDU_SIZE", c.max_pdu_size);
+    c.max_associations       = env_int<std::uint16_t>("NL_ROUTER_MAX_ASSOCIATIONS",
+                                                       c.max_associations);
     c.association_timeout_s  = env_int<std::uint32_t>("NL_ROUTER_ASSOCIATION_TIMEOUT_S",
                                                        c.association_timeout_s);
     c.metrics_port           = env_int<std::uint16_t>("NL_ROUTER_METRICS_PORT", c.metrics_port);

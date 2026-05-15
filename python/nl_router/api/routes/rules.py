@@ -106,9 +106,15 @@ def create_rule(
     req: Request,
     ctx: AuthContext = Depends(require("rules.write")),
 ) -> RuleOut:
-    """Create a rule. The predicate is stored as-is; the router daemon will
-    log a warning if it fails to parse on its next refresh cycle. A
-    server-side parse-validate endpoint lands in a follow-up."""
+    """Create a rule.
+
+    The predicate goes through a structural preflight (length + paren
+    depth + balanced quotes) on the API boundary — see
+    `_validate_predicate_text` in api/models.py. Anything that passes
+    preflight is stored as-is; the router daemon parses semantically
+    on its next rule-cache refresh, and logs a warning if the body
+    fails to compile (which only happens for unknown function /
+    method names that the preflight can't see)."""
     with pool().connection() as conn, conn.cursor() as cur:
         try:
             cur.execute(

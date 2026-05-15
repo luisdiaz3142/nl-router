@@ -30,12 +30,42 @@
 
 namespace nlr {
 
-AssociationHandler::AssociationHandler(const Config& cfg, Db& db,
-                                        const ReceiverMetrics& metrics,
-                                        const DiskGuard* disk_guard,
-                                        std::string peer_type)
-    : cfg_(cfg), db_(db), metrics_(metrics), disk_guard_(disk_guard),
-      peer_type_(std::move(peer_type)) {}
+// ---- Shared static context (initialized once at startup) ---------------
+//
+// All pool workers across both PlainAssociationHandler and
+// TlsAssociationHandler subclasses read these. Initialization runs on
+// the main thread before any pool starts; reads from workers see fully
+// constructed values via thread-creation memory-ordering. We do not
+// mutate after init, so no synchronization is required at read time.
+
+const Config*          AssociationHandler::s_cfg_        = nullptr;
+Db*                    AssociationHandler::s_db_         = nullptr;
+const ReceiverMetrics* AssociationHandler::s_metrics_    = nullptr;
+const DiskGuard*       AssociationHandler::s_disk_guard_ = nullptr;
+
+void AssociationHandler::init_shared_context(const Config& cfg, Db& db,
+                                              const ReceiverMetrics& metrics,
+                                              const DiskGuard* disk_guard) {
+    s_cfg_        = &cfg;
+    s_db_         = &db;
+    s_metrics_    = &metrics;
+    s_disk_guard_ = disk_guard;
+}
+
+// ---- Subclass peer_type() overrides ------------------------------------
+//
+// One subclass per transport so DcmSCPPool can be templated cleanly.
+// The string is a static-local so we hand out a reference without
+// per-call allocation.
+
+const std::string& PlainAssociationHandler::peer_type() const {
+    static const std::string s = "plain";
+    return s;
+}
+const std::string& TlsAssociationHandler::peer_type() const {
+    static const std::string s = "tls";
+    return s;
+}
 
 void AssociationHandler::notifyAssociationRequest(
     const T_ASC_Parameters& params,
@@ -45,8 +75,8 @@ void AssociationHandler::notifyAssociationRequest(
     // presentation contexts. DCMTK emits A-ASSOCIATE-RJ on the wire
     // using the reason code mapped from DCMSCP_TOO_MANY_ASSOCIATIONS,
     // which is the closest standard reason ("local-limit-exceeded").
-    if (disk_guard_ != nullptr &&
-        disk_guard_->state() == DiskGuard::State::Reject)
+    if (disk_guard() != nullptr &&
+        disk_guard()->state() == DiskGuard::State::Reject)
     {
         // Pull peer identity out of T_ASC_Parameters for the log line.
         // We can't use getPeerAETitle() yet — that becomes available
@@ -60,7 +90,7 @@ void AssociationHandler::notifyAssociationRequest(
             "called_aet",  called,
             "peer",        peer);
 
-        metrics_.associations_total.labels({"rejected_disk_full", peer_type_}).inc();
+        metrics().associations_total.labels({"rejected_disk_full", peer_type()}).inc();
         desired_action = DCMSCP_ACTION_REFUSE_ASSOCIATION;
         return;
     }
@@ -159,16 +189,15 @@ void AssociationHandler::snapshot_network_context_() {
     // because that hook isn't cleanly overridable in DCMTK 3.6.x; reaching
     // handleIncomingCommand means negotiation completed and the peer is
     // talking DIMSE, which is the operational definition of "accepted."
-    metrics_.associations_total.labels({"accepted", peer_type_}).inc();
-    metrics_.associations_active.self().inc();
-    // v1 single-threaded model — busy reflects the single in-flight assoc.
-    metrics_.workers_busy.self().inc();
+    metrics().associations_total.labels({"accepted", peer_type()}).inc();
+    metrics().associations_active.self().inc();
+    metrics().workers_busy.self().inc();
 
     LOG_INFO("association.accept",
         "calling_aet", calling_aet_,
         "called_aet",  called_aet_,
         "peer_ip",     peer_ip_,
-        "peer_type",   peer_type_);
+        "peer_type",   peer_type());
 }
 
 OFCondition AssociationHandler::handleIncomingCommand(
@@ -226,18 +255,18 @@ OFCondition AssociationHandler::handle_store(
         // same study reuse both.
         study_state.landing_date = today_yyyymmdd();
         study_state.row.received_at_iso = iso_now();
-        study_state.row.server_id   = cfg_.server_id;
+        study_state.row.server_id   = cfg().server_id;
         study_state.row.calling_aet = calling_aet_;
         study_state.row.called_aet  = called_aet_;
         study_state.row.peer_ip     = peer_ip_;
         study_state.row.tags        = tags;
         study_state.row.file_root_path =
-            study_root(cfg_.landing_zone, study_state.landing_date,
+            study_root(cfg().landing_zone, study_state.landing_date,
                        tags.study_instance_uid).string();
     }
 
     const auto file_path = instance_path(
-        cfg_.landing_zone,
+        cfg().landing_zone,
         study_state.landing_date,
         tags.study_instance_uid,
         *tags.series_instance_uid,
@@ -278,9 +307,9 @@ OFCondition AssociationHandler::handle_store(
     // "unknown" bucket — keep label values stable but non-empty.
     const std::string modality =
         tags.modality ? *tags.modality : std::string{"unknown"};
-    metrics_.instances_received_total.labels({calling_aet_, modality}).inc();
+    metrics().instances_received_total.labels({calling_aet_, modality}).inc();
     if (!ec) {
-        metrics_.bytes_received_total.labels({calling_aet_})
+        metrics().bytes_received_total.labels({calling_aet_})
             .inc(static_cast<std::int64_t>(bytes));
     }
 
@@ -319,7 +348,7 @@ void AssociationHandler::notifyAssociationTermination() {
     for (auto& [study_uid, state] : studies_) {
         state.row.closed_at_iso = closed_at;
         try {
-            const auto id = db_.insert_work_queue_row(state.row);
+            const auto id = db().insert_work_queue_row(state.row);
             LOG_INFO("work_queue.row_inserted",
                 "id",            std::to_string(id),
                 "study_uid",     study_uid,
@@ -328,7 +357,7 @@ void AssociationHandler::notifyAssociationTermination() {
             ++rows_inserted;
             // v1 only ships the assoc_end trigger; series/study idle
             // timers land alongside the bounded-pool listener.
-            metrics_.studies_closed_total.labels({"assoc_end"}).inc();
+            metrics().studies_closed_total.labels({"assoc_end"}).inc();
         } catch (const std::exception& e) {
             LOG_ERROR("work_queue.insert_failed",
                 "study_uid", study_uid,
@@ -343,9 +372,9 @@ void AssociationHandler::notifyAssociationTermination() {
     // uses these buckets for outlier detection, not nanosecond accuracy.
     const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(
         std::chrono::system_clock::now() - assoc_start_).count();
-    metrics_.association_duration_seconds.self().observe(dt);
-    metrics_.associations_active.self().dec();
-    metrics_.workers_busy.self().dec();
+    metrics().association_duration_seconds.self().observe(dt);
+    metrics().associations_active.self().dec();
+    metrics().workers_busy.self().dec();
 
     LOG_INFO("association.close",
         "calling_aet",       calling_aet_,

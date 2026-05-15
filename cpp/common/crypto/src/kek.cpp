@@ -13,6 +13,9 @@
 #include <string>
 #include <vector>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 namespace nl_router::crypto {
 
 namespace {
@@ -101,6 +104,30 @@ std::vector<std::uint8_t> read_file_bytes(const std::filesystem::path& path) {
 
 }  // namespace
 
+// Refuse to load a KEK file with too-permissive mode bits or wrong
+// ownership. Mirrors python/nl_router/config.py:_verify_kek_file_perms
+// so the receiver/router/dispatcher/cleaner all enforce the same rule.
+void verify_file_perms(const std::filesystem::path& path) {
+    struct ::stat st {};
+    if (::stat(path.c_str(), &st) != 0) {
+        throw KEKUnavailableError("could not stat KEK file: " + path.string());
+    }
+    const auto bad_bits = st.st_mode & (S_IRWXG | S_IRWXO);
+    if (bad_bits != 0) {
+        throw KEKUnavailableError(
+            "KEK file " + path.string() + " has insecure mode " +
+            std::to_string(st.st_mode & 0777) +
+            " (group/other bits set); expected 0400 or 0600.");
+    }
+    const auto euid = ::geteuid();
+    if (euid != 0 && st.st_uid != euid) {
+        throw KEKUnavailableError(
+            "KEK file " + path.string() + " is owned by uid " +
+            std::to_string(st.st_uid) + " but we are uid " +
+            std::to_string(euid) + "; refusing to load a KEK we do not own.");
+    }
+}
+
 std::vector<std::uint8_t> load_kek() {
     // 1) File source first (matches the design plan's precedence rule).
     std::filesystem::path path = kDefaultKekPath;
@@ -109,6 +136,7 @@ std::vector<std::uint8_t> load_kek() {
     }
     std::error_code ec;
     if (std::filesystem::exists(path, ec) && !ec) {
+        verify_file_perms(path);
         return decode_key(read_file_bytes(path), "file:" + path.string());
     }
 
