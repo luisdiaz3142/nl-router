@@ -50,9 +50,11 @@ add_executable(nl-dispatch
     src/config.cpp
     src/logging.cpp
     src/db.cpp
+    src/credential.cpp
     src/dicom_handler.cpp
     src/file_handler.cpp
     src/http_handler.cpp
+    src/dicomweb_stow_handler.cpp
     src/factory.cpp
     src/template.cpp
     src/worker.cpp

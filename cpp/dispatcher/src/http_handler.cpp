@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 
+#include "credential.hpp"
 #include "handler.hpp"
 #include "logging.hpp"
 #include "template.hpp"
@@ -21,85 +22,6 @@ std::size_t write_to_string(void* ptr, std::size_t size, std::size_t nmemb, void
     auto* s = static_cast<std::string*>(userdata);
     s->append(static_cast<char*>(ptr), size * nmemb);
     return size * nmemb;
-}
-
-// RFC 4648 standard base64 encoder for the Basic auth header. Tiny enough
-// to inline rather than pull in another lib.
-std::string base64_encode(const std::string& in) {
-    static const char alpha[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    out.reserve(((in.size() + 2) / 3) * 4);
-    int val = 0, bits = -6;
-    for (unsigned char c : in) {
-        val = (val << 8) + c;
-        bits += 8;
-        while (bits >= 0) {
-            out.push_back(alpha[(val >> bits) & 0x3F]);
-            bits -= 6;
-        }
-    }
-    if (bits > -6) out.push_back(alpha[((val << 8) >> (bits + 8)) & 0x3F]);
-    while (out.size() % 4 != 0) out.push_back('=');
-    return out;
-}
-
-// Apply the destination's credential to a curl_slist headers / curl handle.
-// Returns the updated headers list (caller is responsible for free).
-//
-// On unsupported kinds, logs a warning and returns the list unchanged —
-// the request still goes out without auth, which is the operator-visible
-// behavior they expect when the credential is misconfigured (they'll see
-// 401 from the peer and can rotate).
-struct curl_slist* apply_credential(struct curl_slist* headers,
-                                      CURL* curl,
-                                      const Assignment& a,
-                                      std::string& url /* mutated for api_key query */) {
-    if (a.credential_kind.empty()) return headers;
-    if (a.credential_payload.empty()) {
-        LOG_WARN("dispatch.http.cred_no_payload",
-            "assignment_id", std::to_string(a.id),
-            "kind",          a.credential_kind);
-        return headers;
-    }
-
-    try {
-        const auto j = nlohmann::json::parse(a.credential_payload);
-        if (a.credential_kind == "basic_http") {
-            const auto user = j.value("username", "");
-            const auto pass = j.value("password", "");
-            const std::string token = base64_encode(user + ":" + pass);
-            const std::string hdr = "Authorization: Basic " + token;
-            headers = curl_slist_append(headers, hdr.c_str());
-        } else if (a.credential_kind == "bearer_token") {
-            const auto tok = j.value("token", "");
-            const std::string hdr = "Authorization: Bearer " + tok;
-            headers = curl_slist_append(headers, hdr.c_str());
-        } else if (a.credential_kind == "api_key") {
-            const auto val = j.value("value", "");
-            if (j.contains("header") && j["header"].is_string()) {
-                const std::string hdr = j["header"].get<std::string>() + ": " + val;
-                headers = curl_slist_append(headers, hdr.c_str());
-            } else if (j.contains("query_param") && j["query_param"].is_string()) {
-                const auto key = j["query_param"].get<std::string>();
-                const char sep = url.find('?') == std::string::npos ? '?' : '&';
-                url.push_back(sep);
-                url.append(url_encode(key));
-                url.push_back('=');
-                url.append(url_encode(val));
-            }
-        } else {
-            LOG_WARN("dispatch.http.cred_unsupported_kind",
-                "assignment_id", std::to_string(a.id),
-                "kind",          a.credential_kind);
-        }
-    } catch (const nlohmann::json::exception& e) {
-        LOG_WARN("dispatch.http.cred_parse_failed",
-            "assignment_id", std::to_string(a.id),
-            "error",         e.what());
-    }
-    (void)curl;  // future use (mTLS via CURLOPT_SSLCERT)
-    return headers;
 }
 
 }  // namespace
@@ -167,7 +89,12 @@ DispatchResult HttpDispatchHandler::dispatch(const Assignment& a, const Destinat
             headers_list = curl_slist_append(headers_list, hdr.c_str());
         }
     }
-    headers_list = apply_credential(headers_list, curl, a, /*url=*/url);
+    {
+        const bool url_has_query = url.find('?') != std::string::npos;
+        auto cred = apply_credential_to_request(a, headers_list, url_has_query);
+        headers_list = cred.headers;
+        if (!cred.append_to_url.empty()) url.append(cred.append_to_url);
+    }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
