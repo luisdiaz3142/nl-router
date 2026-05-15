@@ -12,9 +12,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "config.hpp"
 #include "db.hpp"
@@ -24,7 +26,8 @@ namespace nlr {
 
 class Worker {
 public:
-    Worker(const Config& cfg, Destination destination, const std::string& worker_id);
+    Worker(const Config& cfg, Destination destination, const std::string& worker_id,
+           std::vector<std::uint8_t> kek);
     ~Worker();
 
     Worker(const Worker&)            = delete;
@@ -56,6 +59,7 @@ private:
     std::unique_ptr<Db> db_;                // owned by this worker (libpq isn't thread-safe)
     std::unique_ptr<DispatchHandler> handler_;
     std::string    worker_id_;
+    std::vector<std::uint8_t> kek_;         // shared with other workers; immutable post-startup
     std::atomic<bool> stop_requested_ {false};
     std::thread    thread_;
 };

@@ -28,6 +28,19 @@ struct Assignment {
     int           attempts;             // current attempt count (pre-increment)
     std::string   study_file_root;      // work_queue.file_root_path
     std::string   study_instance_uid;   // for logging / association SOPs
+
+    // Full extracted tag set (work_queue.tags JSONB rendered as text).
+    // Handlers that do `${TagName}` substitution parse this themselves.
+    // Empty for assignments produced by handlers that don't read tags.
+    std::string   tags_json;
+
+    // ---- Credential (decrypted by the worker if destination.credential_id) ----
+    // The worker fetches the credentials row, decrypts the envelope with
+    // the loaded KEK, and attaches the plaintext payload + kind here
+    // before invoking the handler. If the destination has no credential,
+    // both stay empty.
+    std::string   credential_kind;       // "basic_http" | "bearer_token" | ...
+    std::string   credential_payload;    // decrypted plaintext JSON
 };
 
 // Cached snapshot of a destination row (parsed JSONB config + retry policy).
@@ -56,6 +69,17 @@ struct Destination {
     double rp_multiplier          {2.0};
     int    rp_max_backoff_s       {3600};
     int    rp_give_up_after_hours {72};
+
+    // ---- generic config (raw JSON text) ----
+    // Handlers other than `dicom` (whose fields are pre-parsed above) read
+    // their kind-specific config from here. Each handler is responsible
+    // for parsing what it needs.
+    std::string   config_json;
+
+    // FK to the credentials table; 0 = no credential. The worker uses
+    // this to fetch + decrypt the row before each dispatch; the actual
+    // payload lives on Assignment (per-dispatch, not persisted).
+    std::int64_t  credential_id     {0};
 };
 
 // Outcome of dispatching one assignment.

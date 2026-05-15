@@ -36,8 +36,9 @@ std::string cell(PGresult* r, int row, int col) {
 
 constexpr const char* kListDestinationsSql = R"SQL(
 SELECT id, name, kind, enabled, dispatch_concurrency,
-       config::text  AS config_text,
-       retry_policy::text AS retry_text
+       config::text       AS config_text,
+       retry_policy::text AS retry_text,
+       credential_id
   FROM destinations
  WHERE enabled = TRUE
  ORDER BY id
@@ -108,8 +109,9 @@ UPDATE route_assignments ra
   FROM picked
  WHERE ra.id = picked.id
 RETURNING ra.id, ra.work_queue_id, ra.rule_id, ra.destination_id, ra.attempts,
-          (SELECT w.file_root_path FROM work_queue w WHERE w.id = ra.work_queue_id),
-          (SELECT w.study_instance_uid FROM work_queue w WHERE w.id = ra.work_queue_id)
+          (SELECT w.file_root_path     FROM work_queue w WHERE w.id = ra.work_queue_id),
+          (SELECT w.study_instance_uid FROM work_queue w WHERE w.id = ra.work_queue_id),
+          (SELECT w.tags::text         FROM work_queue w WHERE w.id = ra.work_queue_id)
 )SQL";
 
 // ---- terminal transitions ---------------------------------------------
@@ -263,6 +265,12 @@ std::vector<Destination> Db::list_enabled_destinations() {
         d.dispatch_concurrency = static_cast<std::int16_t>(std::stoi(cell(r.r, i, 4)));
         const auto config_text = cell(r.r, i, 5);
         const auto retry_text  = cell(r.r, i, 6);
+        d.config_json = config_text;
+        const auto cred_text = cell(r.r, i, 7);
+        if (!cred_text.empty()) {
+            try { d.credential_id = std::stoll(cred_text); }
+            catch (...) { d.credential_id = 0; }
+        }
         if (d.kind == "dicom") apply_dicom_config(d, config_text);
         apply_retry_policy(d, retry_text);
         out.push_back(std::move(d));
@@ -306,9 +314,90 @@ std::vector<Assignment> Db::claim_pending_for_destination(
         a.attempts            = std::stoi(cell(r.r, i, 4));
         a.study_file_root     = cell(r.r, i, 5);
         a.study_instance_uid  = cell(r.r, i, 6);
+        a.tags_json           = cell(r.r, i, 7);
         out.push_back(std::move(a));
     }
     return out;
+}
+
+std::optional<Db::CredentialEnvelope>
+Db::fetch_credential_envelope(std::int64_t credential_id) {
+    ensure_connected_();
+
+    const std::string id_s = std::to_string(credential_id);
+    const char* params[1] = { id_s.c_str() };
+    // libpq's text protocol returns BYTEA as the standard "\\x<hex>" form,
+    // which we'd have to decode. Easier: ask Postgres to encode the bytea
+    // columns as base64 text strings inline.
+    ResultGuard r{
+        PQexecParams(as_conn(conn_),
+            "SELECT id, kind, enc_version,"
+            "       encode(nonce, 'base64')      AS nonce_b64,"
+            "       encode(ciphertext, 'base64') AS ct_b64"
+            "  FROM credentials WHERE id = $1",
+            1, nullptr, params, nullptr, nullptr, 0)
+    };
+    if (PQresultStatus(r.r) != PGRES_TUPLES_OK) {
+        throw DbError(std::string{"fetch_credential_envelope: "} +
+                      PQerrorMessage(as_conn(conn_)));
+    }
+    if (PQntuples(r.r) == 0) return std::nullopt;
+
+    auto b64_decode = [](const std::string& s) -> std::vector<std::uint8_t> {
+        // Strip whitespace; reuse OpenSSL's BIO base64 decoder for
+        // standard '+', '/', '=' base64 (Postgres encode() emits classical
+        // base64, not urlsafe).
+        std::string compact;
+        compact.reserve(s.size());
+        for (char c : s) if (c != '\n' && c != '\r' && c != ' ') compact.push_back(c);
+        // Pad to multiple of 4.
+        while (compact.size() % 4 != 0) compact.push_back('=');
+
+        // Tiny base64 decoder (classical alphabet).
+        static int table[256];
+        static bool init = false;
+        if (!init) {
+            for (int i = 0; i < 256; ++i) table[i] = -1;
+            for (int i = 0; i < 26; ++i) {
+                table[static_cast<unsigned>('A' + i)] = i;
+                table[static_cast<unsigned>('a' + i)] = i + 26;
+            }
+            for (int i = 0; i < 10; ++i) table[static_cast<unsigned>('0' + i)] = i + 52;
+            table[static_cast<unsigned>('+')] = 62;
+            table[static_cast<unsigned>('/')] = 63;
+            init = true;
+        }
+
+        std::vector<std::uint8_t> out;
+        out.reserve((compact.size() / 4) * 3);
+        for (std::size_t i = 0; i < compact.size(); i += 4) {
+            const char a = compact[i], b = compact[i+1], c = compact[i+2], d = compact[i+3];
+            const int va = table[static_cast<unsigned char>(a)];
+            const int vb = table[static_cast<unsigned char>(b)];
+            const int vc = (c == '=') ? 0 : table[static_cast<unsigned char>(c)];
+            const int vd = (d == '=') ? 0 : table[static_cast<unsigned char>(d)];
+            if (va < 0 || vb < 0 || (c != '=' && vc < 0) || (d != '=' && vd < 0)) {
+                return {};        // malformed; let caller treat as "no creds"
+            }
+            const std::uint32_t triple =
+                (static_cast<std::uint32_t>(va) << 18) |
+                (static_cast<std::uint32_t>(vb) << 12) |
+                (static_cast<std::uint32_t>(vc) <<  6) |
+                 static_cast<std::uint32_t>(vd);
+            out.push_back(static_cast<std::uint8_t>((triple >> 16) & 0xFFu));
+            if (c != '=') out.push_back(static_cast<std::uint8_t>((triple >> 8) & 0xFFu));
+            if (d != '=') out.push_back(static_cast<std::uint8_t>( triple        & 0xFFu));
+        }
+        return out;
+    };
+
+    CredentialEnvelope env;
+    env.id          = std::stoll(cell(r.r, 0, 0));
+    env.kind        = cell(r.r, 0, 1);
+    env.enc_version = static_cast<std::int16_t>(std::stoi(cell(r.r, 0, 2)));
+    env.nonce       = b64_decode(cell(r.r, 0, 3));
+    env.ciphertext  = b64_decode(cell(r.r, 0, 4));
+    return env;
 }
 
 // Helper: run kRollupWorkQueueSql for a known work_queue_id. Used by both

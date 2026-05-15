@@ -7,13 +7,16 @@
 #include <thread>
 
 #include "logging.hpp"
+#include "nl_router/crypto/envelope.hpp"
 
 namespace nlr {
 
-Worker::Worker(const Config& cfg, Destination destination, const std::string& worker_id)
+Worker::Worker(const Config& cfg, Destination destination, const std::string& worker_id,
+               std::vector<std::uint8_t> kek)
     : cfg_(cfg),
       destination_(std::move(destination)),
-      worker_id_(worker_id)
+      worker_id_(worker_id),
+      kek_(std::move(kek))
 {
     db_      = std::make_unique<Db>(cfg_.database_url);
     handler_ = make_handler(destination_.kind);
@@ -91,17 +94,63 @@ void Worker::run_() {
             "destination_id", std::to_string(dst.id),
             "count",          std::to_string(claimed.size()));
 
-        for (const auto& a : claimed) {
+        for (const auto& a_orig : claimed) {
             if (stop_requested_.load(std::memory_order_relaxed)) break;
 
+            // Mutable copy so we can attach decrypted credentials without
+            // mutating the claim returned from the DB.
+            Assignment a = a_orig;
+
+            // Step 1: resolve credential (if any). On failure, build a
+            // DispatchResult directly and skip handler invocation.
+            //
+            // optional<> isn't quite the right model — we need to know
+            // whether to *invoke* the handler vs short-circuit. Use a
+            // simple flag.
+            bool cred_failed = false;
+            DispatchResult cred_failure = DispatchResult::permanent("");
+            if (dst.credential_id > 0) {
+                try {
+                    auto env_opt = db_->fetch_credential_envelope(dst.credential_id);
+                    if (!env_opt.has_value()) {
+                        cred_failed = true;
+                        cred_failure = DispatchResult::permanent(
+                            "credential id " + std::to_string(dst.credential_id) +
+                            " not found");
+                    } else {
+                        ::nl_router::crypto::Envelope env;
+                        env.enc_version = env_opt->enc_version;
+                        env.nonce       = env_opt->nonce;
+                        env.ciphertext  = env_opt->ciphertext;
+                        a.credential_kind    = env_opt->kind;
+                        a.credential_payload =
+                            ::nl_router::crypto::decrypt_to_string(env, kek_);
+                    }
+                } catch (const ::nl_router::crypto::DecryptError& e) {
+                    cred_failed = true;
+                    cred_failure = DispatchResult::permanent(
+                        std::string{"credential decrypt: "} + e.what());
+                } catch (const std::exception& e) {
+                    cred_failed = true;
+                    cred_failure = DispatchResult::transient(
+                        std::string{"credential fetch: "} + e.what());
+                }
+            }
+
+            // Step 2: dispatch. Either short-circuit with the credential
+            // failure, or invoke the handler.
             DispatchResult result = DispatchResult::permanent("uninitialized");
-            try {
-                result = handler_->dispatch(a, dst);
-            } catch (const std::exception& e) {
-                result = DispatchResult::transient(
-                    std::string{"uncaught: "} + e.what());
-            } catch (...) {
-                result = DispatchResult::transient("uncaught: unknown");
+            if (cred_failed) {
+                result = std::move(cred_failure);
+            } else {
+                try {
+                    result = handler_->dispatch(a, dst);
+                } catch (const std::exception& e) {
+                    result = DispatchResult::transient(
+                        std::string{"uncaught: "} + e.what());
+                } catch (...) {
+                    result = DispatchResult::transient("uncaught: unknown");
+                }
             }
 
             try {

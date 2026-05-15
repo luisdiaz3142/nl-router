@@ -20,6 +20,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -84,6 +85,17 @@ public:
     void mark_failed_permanent(std::int64_t assignment_id,
                                 const std::string& error,
                                 const std::string& response_detail_json);
+
+    // Fetch one credential's encrypted envelope. Returns nullopt if the
+    // credential id doesn't exist or is missing crypto columns.
+    struct CredentialEnvelope {
+        std::int64_t  id;
+        std::string   kind;
+        std::int16_t  enc_version;
+        std::vector<std::uint8_t> nonce;
+        std::vector<std::uint8_t> ciphertext;
+    };
+    std::optional<CredentialEnvelope> fetch_credential_envelope(std::int64_t credential_id);
 
 private:
     void* conn_ {nullptr};

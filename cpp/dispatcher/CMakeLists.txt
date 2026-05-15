@@ -43,12 +43,18 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
+find_package(CURL REQUIRED)
+
 add_executable(nl-dispatch
     src/main.cpp
     src/config.cpp
     src/logging.cpp
     src/db.cpp
     src/dicom_handler.cpp
+    src/file_handler.cpp
+    src/http_handler.cpp
+    src/factory.cpp
+    src/template.cpp
     src/worker.cpp
     src/server.cpp
 )
@@ -60,7 +66,9 @@ target_include_directories(nl-dispatch PRIVATE
 
 target_link_libraries(nl-dispatch PRIVATE
     DCMTK::DCMTK
+    nl_router::crypto
     nlohmann_json::nlohmann_json
+    CURL::libcurl
     ${PostgreSQL_LIBRARIES}
 )
 

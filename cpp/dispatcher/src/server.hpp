@@ -9,9 +9,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "config.hpp"
 #include "db.hpp"
@@ -35,6 +37,10 @@ private:
     std::unique_ptr<Db> meta_db_;            // used by the server thread for
                                               //  the destination-list query
     std::unordered_map<std::int64_t, std::unique_ptr<Worker>> workers_;
+    std::vector<std::uint8_t> kek_;          // loaded once at startup, shared
+                                              //  read-only across workers.
+                                              //  Empty if no destinations
+                                              //  require credentials yet.
     std::atomic<bool> stop_requested_ {false};
     std::chrono::steady_clock::time_point last_refresh_;
 };

@@ -307,12 +307,4 @@ DispatchResult DicomDispatchHandler::dispatch(const Assignment& a,
     return DispatchResult::success(detail);
 }
 
-// Factory.
-std::unique_ptr<DispatchHandler> make_handler(const std::string& kind) {
-    if (kind == "dicom") return std::make_unique<DicomDispatchHandler>();
-    // Other kinds land in M7 (Dispatcher M2). Returning nullptr causes the
-    // worker to log and skip the assignment without crashing the daemon.
-    return nullptr;
-}
-
 }  // namespace nlr

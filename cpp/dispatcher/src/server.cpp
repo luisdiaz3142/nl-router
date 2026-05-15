@@ -10,6 +10,8 @@
 #include <unordered_set>
 
 #include "logging.hpp"
+#include "nl_router/crypto/envelope.hpp"
+#include "nl_router/crypto/kek.hpp"
 
 namespace nlr {
 
@@ -26,6 +28,19 @@ std::string short_hostname() {
 Server::Server(const Config& cfg) : cfg_(cfg) {
     meta_db_ = std::make_unique<Db>(cfg_.database_url);
     last_refresh_ = std::chrono::steady_clock::now() - std::chrono::hours(1);
+
+    // Try to load the KEK at startup. If unavailable, we still start —
+    // destinations without credentials work fine — but log a warning so
+    // operators know credential-requiring destinations will fail.
+    try {
+        kek_ = ::nl_router::crypto::load_kek();
+        LOG_INFO("dispatcher.kek_loaded");
+    } catch (const ::nl_router::crypto::KEKUnavailableError& e) {
+        LOG_WARN("dispatcher.kek_unavailable",
+            "reason", e.what(),
+            "impact", "destinations with credential_id will fail per-assignment until a KEK is configured");
+    }
+
     LOG_INFO("dispatcher.startup",
         "server_id",            cfg_.server_id,
         "poll_interval_ms",     std::to_string(cfg_.poll_interval_ms),
@@ -56,7 +71,7 @@ void Server::refresh_destinations_() {
         auto it = workers_.find(d.id);
         if (it == workers_.end()) {
             const auto wid = make_worker_id_(d.id);
-            auto w = std::make_unique<Worker>(cfg_, d, wid);
+            auto w = std::make_unique<Worker>(cfg_, d, wid, kek_);
             w->start();
             workers_[d.id] = std::move(w);
             LOG_INFO("dispatcher.worker_started",
