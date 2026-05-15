@@ -54,7 +54,10 @@ add_executable(nl-dispatch
     src/dicom_handler.cpp
     src/file_handler.cpp
     src/http_handler.cpp
+    src/stow_upload.cpp
     src/dicomweb_stow_handler.cpp
+    src/gcp_oauth.cpp
+    src/gcp_dicomweb_handler.cpp
     src/factory.cpp
     src/template.cpp
     src/worker.cpp
