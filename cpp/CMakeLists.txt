@@ -58,12 +58,14 @@ if(NL_ROUTER_BUILD_TESTS)
     enable_testing()
 endif()
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
 # ---- Subdirectories -----------------------------------------------------
 add_subdirectory(common)
+add_subdirectory(receiver)
 
 # Future:
 #   add_subdirectory(getdcmtags)
-#   add_subdirectory(receiver)
 #   add_subdirectory(router)
 #   add_subdirectory(dispatcher)
 #   add_subdirectory(cleaner)
