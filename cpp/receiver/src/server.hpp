@@ -16,9 +16,12 @@
 
 namespace nlr {
 
+class DiskGuard;
+
 class Server {
 public:
-    Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics);
+    Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics,
+           const DiskGuard* disk_guard);
 
     // Run the accept loop. Returns when stop() is called or a fatal network
     // error occurs.

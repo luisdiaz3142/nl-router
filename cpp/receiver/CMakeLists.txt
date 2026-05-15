@@ -39,6 +39,7 @@ add_executable(nl-receiver
     src/association_handler.cpp
     src/server.cpp
     src/metrics.cpp
+    src/disk_guard.cpp
 )
 
 target_include_directories(nl-receiver PRIVATE

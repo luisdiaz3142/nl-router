@@ -39,6 +39,7 @@ struct ReceiverMetrics {
     nlr::metrics::CounterFamily&   studies_closed_total;     // {trigger}
     nlr::metrics::GaugeFamily&     landing_disk_used_bytes;
     nlr::metrics::GaugeFamily&     landing_disk_free_bytes;
+    nlr::metrics::GaugeFamily&     landing_disk_state;       // 0=normal,1=warn,2=reject
     nlr::metrics::HistogramFamily& db_insert_duration_seconds;
     nlr::metrics::CounterFamily&   db_insert_errors_total;
 

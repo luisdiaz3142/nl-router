@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 
+#include "disk_guard.hpp"
 #include "logging.hpp"
 #include "storage.hpp"
 #include "tag_extractor.hpp"
@@ -30,8 +31,45 @@
 namespace nlr {
 
 AssociationHandler::AssociationHandler(const Config& cfg, Db& db,
-                                        const ReceiverMetrics& metrics)
-    : cfg_(cfg), db_(db), metrics_(metrics) {}
+                                        const ReceiverMetrics& metrics,
+                                        const DiskGuard* disk_guard)
+    : cfg_(cfg), db_(db), metrics_(metrics), disk_guard_(disk_guard) {}
+
+void AssociationHandler::notifyAssociationRequest(
+    const T_ASC_Parameters& params,
+    DcmSCPActionType& desired_action)
+{
+    // If the disk is in Reject state, refuse before negotiating
+    // presentation contexts. DCMTK emits A-ASSOCIATE-RJ on the wire
+    // using the reason code mapped from DCMSCP_TOO_MANY_ASSOCIATIONS,
+    // which is the closest standard reason ("local-limit-exceeded").
+    if (disk_guard_ != nullptr &&
+        disk_guard_->state() == DiskGuard::State::Reject)
+    {
+        // Pull peer identity out of T_ASC_Parameters for the log line.
+        // We can't use getPeerAETitle() yet — that becomes available
+        // only after acceptance.
+        const std::string calling{params.DULparams.callingAPTitle};
+        const std::string called{params.DULparams.calledAPTitle};
+        const std::string peer{params.DULparams.callingPresentationAddress};
+
+        LOG_WARN("association.reject_disk_full",
+            "calling_aet", calling,
+            "called_aet",  called,
+            "peer",        peer);
+
+        metrics_.associations_total.labels({"rejected_disk_full"}).inc();
+        desired_action = DCMSCP_ACTION_REFUSE_ASSOCIATION;
+        return;
+    }
+
+    // Default path: let DcmSCP proceed with normal negotiation. We don't
+    // call the base implementation because the base is a no-op hook;
+    // leaving desired_action at its incoming value is the documented way
+    // to accept.
+    (void)params;
+    (void)desired_action;
+}
 
 // Normalize a peer address string to a numeric IP literal suitable for
 // inserting into the work_queue.peer_ip INET column.

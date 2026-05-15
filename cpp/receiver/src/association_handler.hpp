@@ -27,15 +27,26 @@
 
 namespace nlr {
 
+class DiskGuard;
+
 class AssociationHandler : public DcmSCP {
 public:
-    AssociationHandler(const Config& cfg, Db& db, const ReceiverMetrics& metrics);
+    AssociationHandler(const Config& cfg, Db& db,
+                       const ReceiverMetrics& metrics,
+                       const DiskGuard* disk_guard);
     ~AssociationHandler() override = default;
 
     AssociationHandler(const AssociationHandler&)            = delete;
     AssociationHandler& operator=(const AssociationHandler&) = delete;
 
 protected:
+    // Called by DcmSCP after an association request is parsed but before
+    // it's accepted. We override to refuse new associations when the
+    // landing zone is too full (DiskGuard reports Reject). DCMTK then
+    // sends a proper A-ASSOCIATE-RJ on the wire.
+    void notifyAssociationRequest(const T_ASC_Parameters& params,
+                                  DcmSCPActionType& desired_action) override;
+
     // Called by DcmSCP when a DIMSE message arrives. We dispatch:
     //   * C-ECHO  -> base class (default behavior is fine)
     //   * C-STORE -> handle_store()
@@ -60,6 +71,7 @@ private:
     const Config& cfg_;
     Db&           db_;
     const ReceiverMetrics& metrics_;
+    const DiskGuard*       disk_guard_;
     std::map<std::string, StudyState> studies_;
     std::chrono::system_clock::time_point assoc_start_;
 

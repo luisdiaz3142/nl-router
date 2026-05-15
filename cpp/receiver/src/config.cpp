@@ -62,6 +62,10 @@ Config load_config() {
     c.metrics_bind_addr      = env_or("NL_ROUTER_METRICS_BIND_ADDR", c.metrics_bind_addr);
     c.disk_poll_interval_s   = env_int<std::uint32_t>("NL_ROUTER_DISK_POLL_INTERVAL_S",
                                                        c.disk_poll_interval_s);
+    c.disk_warn_pct          = env_int<std::uint8_t>("NL_ROUTER_DISK_WARN_PCT",
+                                                      c.disk_warn_pct);
+    c.disk_reject_pct        = env_int<std::uint8_t>("NL_ROUTER_DISK_REJECT_PCT",
+                                                      c.disk_reject_pct);
     c.log_level              = env_or("NL_ROUTER_LOG_LEVEL", c.log_level);
     return c;
 }

@@ -56,6 +56,9 @@ ReceiverMetrics ReceiverMetrics::register_all(nlr::metrics::Registry& r) {
         .landing_disk_free_bytes = r.gauge(
             "nl_receiver_landing_disk_free_bytes",
             "Bytes currently available on the filesystem hosting the landing zone"),
+        .landing_disk_state = r.gauge(
+            "nl_receiver_landing_disk_state",
+            "Landing-zone disk-pressure state: 0=normal, 1=warning, 2=reject"),
         .db_insert_duration_seconds = r.histogram(
             "nl_receiver_db_insert_duration_seconds",
             "Latency of work_queue INSERT statements",

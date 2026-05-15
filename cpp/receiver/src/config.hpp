@@ -47,10 +47,16 @@ struct Config {
     std::uint16_t metrics_port      {9180};
     std::string   metrics_bind_addr {"0.0.0.0"};
 
-    // How often the disk-stats poller updates the landing-zone gauges, in
-    // seconds. Slice 2 of M10 layers two-threshold admission control on
-    // top of these gauges; for now they're informational only.
+    // How often the disk-stats poller updates the landing-zone gauges
+    // and re-evaluates the back-pressure state.
     std::uint32_t disk_poll_interval_s {10};
+
+    // Disk-full back-pressure thresholds, expressed as "used %" of the
+    // landing-zone filesystem. Above warn_pct we keep accepting but log
+    // a warning and surface the state via metrics. Above reject_pct
+    // we A-ASSOCIATE-RJ new associations until the cleaner frees space.
+    std::uint8_t  disk_warn_pct   {85};
+    std::uint8_t  disk_reject_pct {95};
 
     // Logging verbosity. "info" or "debug". Reloaded on SIGHUP in v2.
     std::string log_level {"info"};
@@ -67,6 +73,7 @@ struct Config {
 //   NL_ROUTER_MAX_PDU_SIZE, NL_ROUTER_ASSOCIATION_TIMEOUT_S,
 //   NL_ROUTER_METRICS_PORT, NL_ROUTER_METRICS_BIND_ADDR,
 //   NL_ROUTER_DISK_POLL_INTERVAL_S,
+//   NL_ROUTER_DISK_WARN_PCT, NL_ROUTER_DISK_REJECT_PCT,
 //   NL_ROUTER_LOG_LEVEL
 //
 // Throws std::runtime_error on missing required values or invalid integers.

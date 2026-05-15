@@ -74,9 +74,10 @@ const std::vector<const char*> kAcceptedTransferSyntaxes = {
 
 }  // namespace
 
-Server::Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics)
+Server::Server(const Config& cfg, Db& db, const ReceiverMetrics& metrics,
+                const DiskGuard* disk_guard)
     : cfg_(cfg), db_(db), metrics_(metrics) {
-    handler_ = std::make_unique<AssociationHandler>(cfg_, db_, metrics_);
+    handler_ = std::make_unique<AssociationHandler>(cfg_, db_, metrics_, disk_guard);
     configure_presentation_contexts_();
 
     // The single-threaded baseline reports one worker; the bounded-pool
