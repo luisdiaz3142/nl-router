@@ -1,0 +1,9 @@
+-- 0007 down
+
+BEGIN;
+
+DROP TABLE IF EXISTS login_attempts;
+DROP TABLE IF EXISTS api_tokens;
+DROP TABLE IF EXISTS users;
+
+COMMIT;

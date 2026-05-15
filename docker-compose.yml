@@ -1,0 +1,65 @@
+# Local development stack for nl-router.
+#
+# At this stage only Postgres + PgBouncer are wired up; service containers
+# (receiver, router, dispatcher, cleaner, api, module workers) will be added
+# as their respective milestones land.
+#
+# Usage:
+#   docker compose up -d postgres pgbouncer
+#   make migrate
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nl-router-postgres
+    environment:
+      POSTGRES_USER: nl_router
+      POSTGRES_PASSWORD: nl_router
+      POSTGRES_DB: nl_router
+      # Tune for development; production deployments should configure via their
+      # own postgresql.conf.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "log_statement=none"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Direct Postgres port for tooling (psql, GUI clients, migrations).
+      # Applications should go through PgBouncer at 6432 in normal use.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nl_router -d nl_router"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: nl-router-pgbouncer
+    environment:
+      DATABASE_URL: "postgres://nl_router:nl_router@postgres:5432/nl_router"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+      RESERVE_POOL_SIZE: 10
+      # LISTEN/NOTIFY consumers connect directly to postgres:5432 — not via
+      # PgBouncer in transaction mode (notifications wouldn't survive).
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local

@@ -1,0 +1,49 @@
+# Build artifacts
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Node (if any HTMX tooling ever lands)
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Secrets / local config
+.env
+.env.local
+/etc/nl-router/kek.key
+/etc/nl-router/tls/
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Packaging output
+release/
+*.deb
+*.rpm
+*.tar.gz
