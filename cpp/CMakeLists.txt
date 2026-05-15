@@ -64,10 +64,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 add_subdirectory(common)
 add_subdirectory(receiver)
 add_subdirectory(router)
+add_subdirectory(dispatcher)
 
 # Future:
 #   add_subdirectory(getdcmtags)
-#   add_subdirectory(dispatcher)
 #   add_subdirectory(cleaner)
 #   add_subdirectory(modules)
 
