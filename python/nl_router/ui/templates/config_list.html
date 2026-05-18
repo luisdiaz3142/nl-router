@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set active = "config" %}
+{% block title %}System config — nl-router{% endblock %}
+
+{% block content %}
+<header>
+    <h1 style="margin: 0;">System config</h1>
+</header>
+
+<p class="muted">
+    Cluster-wide config knobs read by the daemons. Each daemon caches
+    these in-memory at startup and refreshes on LISTEN/NOTIFY for the
+    <code>system_config</code> channel — operators don't have to restart
+    services for changes to take effect (NOTIFY plumbing is post-v1; for
+    now, restart the affected service after editing).
+</p>
+
+{% if config %}
+{% for c in config %}
+<article>
+    <header>
+        <strong><code>{{ c.key }}</code></strong>
+        {% if c.description %}<br><small class="muted">{{ c.description }}</small>{% endif %}
+    </header>
+
+    <form method="post" action="/ui/config/{{ c.key }}">
+        <label>Value (JSON)</label>
+        <textarea name="value" rows="6"
+                  style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;">{{ c.value_pretty }}</textarea>
+        <small class="muted">
+            Last updated {{ c.updated_at }} by <code>{{ c.updated_by or '—' }}</code>.
+        </small>
+        <button type="submit" style="margin-top: 0.5rem;">Save</button>
+    </form>
+</article>
+{% endfor %}
+{% else %}
+<p><em>system_config table is empty. Run <code>nl-router migrate up</code> to seed defaults.</em></p>
+{% endif %}
+{% endblock %}

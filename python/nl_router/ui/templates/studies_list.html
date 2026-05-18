@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% set active = "studies" %}
+{% block title %}Studies — nl-router{% endblock %}
+
+{% block content %}
+<header style="display: flex; align-items: center; gap: 1rem;">
+    <h1 style="margin: 0;">Studies</h1>
+    <span style="flex: 1;"></span>
+    <small class="muted">Auto-refreshes every 3 s.</small>
+</header>
+
+<p class="muted">Live view of the work_queue on this node.</p>
+
+{# ---- Filters ---- #}
+<form method="get" action="/ui/studies" style="margin-bottom: 1rem;">
+    <div class="grid">
+        <label>
+            Status
+            <select name="status">
+                <option value="">— any —</option>
+                {% for s in valid_statuses %}
+                    <option value="{{ s }}"
+                            {% if active_filters.status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Calling AET
+            <input type="text" name="calling_aet"
+                   value="{{ active_filters.calling_aet or '' }}"
+                   placeholder="exact match">
+        </label>
+        <label>
+            Modality
+            <input type="text" name="modality"
+                   value="{{ active_filters.modality or '' }}"
+                   placeholder="CT / MR / ...">
+        </label>
+        <label>
+            Search
+            <input type="text" name="search"
+                   value="{{ active_filters.search or '' }}"
+                   placeholder="study UID / accession / patient ID">
+        </label>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <button type="submit">Apply</button>
+        <a href="/ui/studies" role="button" class="secondary">Clear</a>
+    </div>
+</form>
+
+{# ---- The table — HTMX-polled fragment.
+
+    The hx-include selector pulls the active filter values out of the
+    form above and re-applies them to every refresh, so a filtered
+    view keeps its filters as new rows roll in.
+#}
+<div id="studies-table"
+     hx-get="/ui/studies/_table"
+     hx-trigger="every 3s"
+     hx-include="form[action='/ui/studies']"
+     hx-swap="innerHTML">
+    {% include "_studies_table.html" %}
+</div>
+{% endblock %}

@@ -126,17 +126,26 @@ def _bearer_from_header(authorization: str | None) -> str:
     )
 
 
-async def auth_required(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-) -> AuthContext:
-    """Dependency: validate the Bearer token and return an AuthContext.
+class InvalidToken(Exception):
+    """Raised by validate_raw_token when the token is unknown / revoked
+    / expired. Header-based and cookie-based dependencies convert this
+    into the appropriate response (401 JSON / 302 redirect respectively)."""
 
-    Returns 401 if the header is missing/malformed or the token is unknown
-    or revoked. Updates `last_used_at` lazily — at most once per request,
-    fire-and-forget so we don't add a DB write to the hot path.
+
+def validate_raw_token(raw_token: str) -> AuthContext:
+    """Validate a raw token string against the api_tokens table.
+
+    Shared by both the Authorization-header dependency (api/auth.py)
+    and the nlr_session-cookie dependency (ui/auth.py). Updates
+    `last_used_at` at most once per minute per token (throttle prevents
+    a write storm at API request rates).
+
+    Raises:
+        InvalidToken: token is missing/empty/unknown/revoked/expired.
     """
-    raw = _bearer_from_header(authorization)
-    token_hash = hash_token(raw)
+    if not raw_token:
+        raise InvalidToken("empty token")
+    token_hash = hash_token(raw_token)
 
     with pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -151,18 +160,9 @@ async def auth_required(
         )
         row = cur.fetchone()
         if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="invalid or revoked token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # Update last_used_at — but throttle to at most once per minute
-        # per token. Without the throttle, every authenticated request
-        # takes a row lock and triggers a WAL write, which becomes a
-        # write storm at API request rates. The design plan calls for
-        # "no more than once per minute per credential" on the
-        # credentials.last_used_at audit; same applies here. Failure is
-        # ignored (it's diagnostic only).
+            raise InvalidToken("invalid or revoked token")
+        # Throttled write-back so authenticated traffic doesn't pin a
+        # row lock per request.
         try:
             cur.execute(
                 "UPDATE api_tokens "
@@ -176,12 +176,30 @@ async def auth_required(
         except Exception:
             conn.rollback()
 
-    perms = frozenset(row["permissions"] or [])
     return AuthContext(
         token_id=row["id"],
         token_name=row["name"],
-        permissions=perms,
+        permissions=frozenset(row["permissions"] or []),
     )
+
+
+async def auth_required(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> AuthContext:
+    """Dependency: validate the Bearer token and return an AuthContext.
+
+    Returns 401 if the header is missing/malformed or the token is
+    unknown or revoked.
+    """
+    raw = _bearer_from_header(authorization)
+    try:
+        return validate_raw_token(raw)
+    except InvalidToken as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
 
 
 def require(*perms: str):

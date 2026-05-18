@@ -11,8 +11,10 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from nl_router import __version__
 from nl_router.api.routes import (
@@ -26,6 +28,12 @@ from nl_router.api.routes import (
     workqueue,
 )
 from nl_router.db import pool
+from nl_router.ui import routes as ui_routes
+from nl_router.ui import routes_destinations as ui_routes_destinations
+from nl_router.ui import routes_misc as ui_routes_misc
+from nl_router.ui import routes_rules as ui_routes_rules
+from nl_router.ui import routes_studies as ui_routes_studies
+from nl_router.ui.auth import UIAuthRequired, login_redirect
 
 log = logging.getLogger("nl_router.api")
 
@@ -63,7 +71,7 @@ def create_app() -> FastAPI:
         redoc_url="/api/v1/redoc",
     )
 
-    # Routes
+    # API routes
     app.include_router(health.router)                              # /healthz, /readyz
     app.include_router(rules.router,        prefix="/api/v1")      # /api/v1/rules (+ /destinations bindings)
     app.include_router(destinations.router, prefix="/api/v1")      # /api/v1/destinations
@@ -72,6 +80,30 @@ def create_app() -> FastAPI:
     app.include_router(audit.router,        prefix="/api/v1")      # /api/v1/audit
     app.include_router(credentials.router,  prefix="/api/v1")      # /api/v1/credentials
     app.include_router(tokens.router,       prefix="/api/v1")      # /api/v1/tokens
+
+    # UI routes — server-rendered Jinja2 + HTMX. Excluded from OpenAPI
+    # via include_in_schema=False on the router itself.
+    app.include_router(ui_routes.router)                           # /ui, /ui/login, /ui/logout
+    app.include_router(ui_routes_rules.router)                     # /ui/rules
+    app.include_router(ui_routes_destinations.router)              # /ui/destinations
+    app.include_router(ui_routes_studies.router)                   # /ui/studies
+    app.include_router(ui_routes_misc.router)                      # /ui/credentials, /holds, /audit, /config
+    _static_dir = Path(__file__).parent.parent / "ui" / "static"
+    if _static_dir.exists():
+        app.mount("/ui/static", StaticFiles(directory=str(_static_dir)), name="ui-static")
+
+    # When a UI route's auth dep raises UIAuthRequired (cookie missing
+    # or invalid), redirect to /ui/login instead of returning the
+    # JSON 401 the API surface uses. The handler preserves ?next= so
+    # the user lands on their original page after sign-in.
+    @app.exception_handler(UIAuthRequired)
+    async def _on_ui_auth_required(request: Request, exc: UIAuthRequired):  # noqa: ARG001
+        return login_redirect(exc.requested_path)
+
+    # Convenience root redirect: hitting bare / takes you to the UI.
+    @app.get("/", include_in_schema=False)
+    async def _root() -> RedirectResponse:
+        return RedirectResponse(url="/ui", status_code=303)
 
     return app
 

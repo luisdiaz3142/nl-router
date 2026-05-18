@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+{# Base layout shared by every UI page. Pico.css is loaded from a
+   CDN so we don't ship a build pipeline; the HTML is mostly
+   class-less and styled by Pico's element-default selectors. A
+   small inline <style> block overrides what we need (nav layout,
+   table density, status pills). #}
+<html lang="en" data-theme="auto">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}nl-router{% endblock %}</title>
+
+    {# Pico v2 — classless CSS framework. ~12 KB. #}
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+    {# HTMX — drives every form submit + table refresh without a JS framework. #}
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"
+            integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+            crossorigin="anonymous"></script>
+
+    <style>
+        /* Top nav: horizontal, spans full width. */
+        header.app-nav {
+            border-bottom: 1px solid var(--pico-muted-border-color);
+            margin-bottom: 1.5rem;
+        }
+        header.app-nav nav { display: flex; align-items: center; gap: 1rem; }
+        header.app-nav nav .brand { font-weight: 700; }
+        header.app-nav nav .spacer { flex: 1; }
+        header.app-nav nav a { padding: 0.25rem 0.5rem; border-radius: 4px; }
+        header.app-nav nav a.active {
+            background: var(--pico-primary-background);
+            color: var(--pico-primary-inverse);
+        }
+
+        /* Tables: denser by default — operator screens are dense.
+           Pico's default cell padding is comfortable for content
+           pages but wasteful in admin lists. */
+        table.dense { font-size: 0.9rem; }
+        table.dense th, table.dense td { padding: 0.4rem 0.6rem; }
+        table.dense tbody tr:hover { background: var(--pico-secondary-background); }
+
+        /* Status pills — used for work_queue.status, route_assignments.status, etc. */
+        .pill {
+            display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 500;
+        }
+        .pill-ok    { background: #d4edda; color: #155724; }
+        .pill-warn  { background: #fff3cd; color: #856404; }
+        .pill-err   { background: #f8d7da; color: #721c24; }
+        .pill-info  { background: #d1ecf1; color: #0c5460; }
+        .pill-muted { background: var(--pico-secondary-background); color: var(--pico-muted-color); }
+
+        /* Flash messages — set by the route via a flash() helper that
+           writes into a one-shot cookie. */
+        .flash {
+            padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem;
+            border-left: 4px solid;
+        }
+        .flash-ok    { background: #d4edda; border-color: #28a745; color: #155724; }
+        .flash-err   { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+
+        /* Form errors surfaced inline next to a field. */
+        .field-error { color: #dc3545; font-size: 0.85rem; margin-top: -0.5rem; }
+
+        /* Make <pre> blocks (predicate previews, JSON config) wrap. */
+        pre { white-space: pre-wrap; word-break: break-all; }
+
+        /* Reduce the giant default container padding on small screens. */
+        @media (max-width: 768px) {
+            body > main { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    {% if auth %}
+        {# Logged in — render the nav. The login page itself omits this. #}
+        <header class="app-nav">
+            <nav>
+                <a href="/ui" class="brand">nl-router</a>
+                <a href="/ui"
+                   {% if active == "dashboard" %}class="active"{% endif %}>Dashboard</a>
+                <a href="/ui/rules"
+                   {% if active == "rules" %}class="active"{% endif %}>Rules</a>
+                <a href="/ui/destinations"
+                   {% if active == "destinations" %}class="active"{% endif %}>Destinations</a>
+                <a href="/ui/credentials"
+                   {% if active == "credentials" %}class="active"{% endif %}>Credentials</a>
+                <a href="/ui/studies"
+                   {% if active == "studies" %}class="active"{% endif %}>Studies</a>
+                <a href="/ui/holds"
+                   {% if active == "holds" %}class="active"{% endif %}>Holds</a>
+                <a href="/ui/audit"
+                   {% if active == "audit" %}class="active"{% endif %}>Audit</a>
+                <span class="spacer"></span>
+                <small>
+                    {{ auth.token_name }}
+                    <a href="/ui/logout" hx-disable>logout</a>
+                </small>
+            </nav>
+        </header>
+    {% endif %}
+
+    <main class="container">
+        {# Flash message (one-shot cookie set by the route). #}
+        {% if flash_msg %}
+            <div class="flash flash-{{ flash_kind or 'ok' }}">{{ flash_msg }}</div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {# Page-specific scripts go here. #}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

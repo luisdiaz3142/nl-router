@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set active = "holds" %}
+{% block title %}Cleanup holds — nl-router{% endblock %}
+
+{% block content %}
+<header>
+    <h1 style="margin: 0;">Cleanup holds</h1>
+</header>
+
+<p class="muted">
+    Rows the cleaner will skip until the hold is released. Holds never
+    auto-expire — operators must explicitly release them.
+</p>
+
+{% if rows %}
+<table class="dense">
+    <thead><tr>
+        <th>Held since</th><th>Held by</th><th>Reason</th>
+        <th>Study UID</th><th>Calling</th><th>Modality</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td><small>{{ r.cleanup_hold_at }}</small></td>
+            <td><small><code>{{ r.cleanup_hold_by or '—' }}</code></small></td>
+            <td>{{ r.cleanup_hold_reason or '—' }}</td>
+            <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.short_uid }}</code></a></td>
+            <td><code>{{ r.calling_aet }}</code></td>
+            <td>{{ r.modality or '—' }}</td>
+            <td><span class="pill pill-{{ r.pill }}">{{ r.status }}</span></td>
+            <td>
+                <form method="post" action="/ui/studies/{{ r.id }}/release"
+                      style="display: inline; margin: 0;"
+                      onsubmit="return confirm('Release the cleanup hold on study {{ r.short_uid }}?');">
+                    <button type="submit" class="secondary outline"
+                            style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
+                        release
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p><em>No rows are currently on cleanup hold.</em></p>
+{% endif %}
+{% endblock %}

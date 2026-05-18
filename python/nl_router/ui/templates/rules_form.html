@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% set active = "rules" %}
+{% block title %}
+{% if mode == "create" %}New rule{% else %}{{ rule.name }} — Rules{% endif %}
+ — nl-router
+{% endblock %}
+
+{% macro field_error(name) %}
+    {% if errors and errors[name] %}
+        <small class="field-error">{{ errors[name] }}</small>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+<header style="display: flex; align-items: center; gap: 1rem;">
+    <h1 style="margin: 0;">
+        {% if mode == "create" %}New rule{% else %}Edit rule: {{ rule.name }}{% endif %}
+    </h1>
+    <span style="flex: 1;"></span>
+    <a href="/ui/rules">← back to rules</a>
+</header>
+
+{% if errors and errors.__form__ %}
+    <div class="flash flash-err">{{ errors.__form__ }}</div>
+{% endif %}
+
+{# ---- The rule form itself ---- #}
+<form method="post"
+      action="{% if mode == 'create' %}/ui/rules{% else %}/ui/rules/{{ rule.id }}{% endif %}">
+
+    <label for="name">Name <small class="muted">(unique)</small></label>
+    <input type="text" id="name" name="name" required maxlength="200"
+           value="{{ rule.name }}"
+           aria-invalid="{{ 'true' if errors and errors.name else 'false' }}">
+    {{ field_error("name") }}
+
+    <label for="description">Description <small class="muted">(optional)</small></label>
+    <input type="text" id="description" name="description"
+           value="{{ rule.description or '' }}">
+
+    <div class="grid">
+        <label>
+            Scope
+            <select name="scope" aria-invalid="{{ 'true' if errors and errors.scope else 'false' }}">
+                <option value="study"  {% if rule.scope == 'study' %}selected{% endif %}>study</option>
+                <option value="series" {% if rule.scope == 'series' %}selected{% endif %}>series</option>
+            </select>
+            {{ field_error("scope") }}
+        </label>
+
+        <label>
+            Status
+            <select name="status">
+                <option value="draft"    {% if rule.status == 'draft' %}selected{% endif %}>draft</option>
+                <option value="disabled" {% if rule.status == 'disabled' %}selected{% endif %}>disabled</option>
+                <option value="enabled"  {% if rule.status == 'enabled' %}selected{% endif %}>enabled</option>
+            </select>
+            {{ field_error("status") }}
+        </label>
+
+        <label>
+            Priority
+            <input type="number" name="priority" min="-32768" max="32767"
+                   value="{{ rule.priority }}">
+            {{ field_error("priority") }}
+        </label>
+
+        <label>
+            Dispatch order
+            <select name="dispatch_order">
+                <option value="parallel"   {% if rule.dispatch_order == 'parallel' %}selected{% endif %}>parallel</option>
+                <option value="sequential" {% if rule.dispatch_order == 'sequential' %}selected{% endif %}>sequential</option>
+            </select>
+            {{ field_error("dispatch_order") }}
+        </label>
+    </div>
+
+    <label for="predicate">Predicate</label>
+    <textarea id="predicate" name="predicate" rows="4" required
+              aria-invalid="{{ 'true' if errors and errors.predicate else 'false' }}"
+              placeholder='tags.Modality == "CT" and float(tags.SliceThickness) < 2.0'
+              style="font-family: var(--pico-font-family-monospace);"
+    >{{ rule.predicate }}</textarea>
+    {{ field_error("predicate") }}
+    <small class="muted">
+        dicomdiablo-compatible DSL. Field access via <code>tags.X</code>
+        or <code>tags["X"]</code>. Operators: <code>== != &lt; &lt;= &gt; &gt;= and or not in</code>.
+        String methods: <code>.lower() .upper() .strip() .startswith() .endswith()</code>.
+        Casts: <code>float() int() str() bool() len()</code>.
+        Max 8 KiB, max 32-deep nesting.
+    </small>
+
+    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+        <button type="submit">
+            {% if mode == "create" %}Create rule{% else %}Save changes{% endif %}
+        </button>
+        <a href="/ui/rules" role="button" class="secondary">Cancel</a>
+    </div>
+</form>
+
+{# ---- Bindings (edit mode only) ---- #}
+{% if mode == "edit" %}
+<section style="margin-top: 3rem;">
+    <h3>Destination bindings</h3>
+    <p class="muted">
+        When this rule matches, every bound destination receives a copy.
+        Ordinal is only meaningful when dispatch_order = sequential.
+    </p>
+
+    {% if bindings %}
+    <table class="dense">
+        <thead><tr><th>Ord</th><th>Destination</th><th>Kind</th><th>Enabled</th><th></th></tr></thead>
+        <tbody>
+            {% for b in bindings %}
+            <tr>
+                <td>{{ b.ordinal }}</td>
+                <td><a href="/ui/destinations/{{ b.destination_id }}">{{ b.name }}</a></td>
+                <td><code>{{ b.kind }}</code></td>
+                <td>{{ "yes" if b.enabled else "no" }}</td>
+                <td>
+                    <form method="post"
+                          action="/ui/rules/{{ rule.id }}/destinations/{{ b.destination_id }}/unbind"
+                          style="display: inline; margin: 0;"
+                          onsubmit="return confirm('Unbind {{ b.name }}?');">
+                        <button type="submit" class="secondary outline"
+                                style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
+                            unbind
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p><em>No destinations bound yet. This rule matches but produces zero copies.</em></p>
+    {% endif %}
+
+    {% if available_destinations %}
+    <details>
+        <summary>+ Bind a destination</summary>
+        <form method="post" action="/ui/rules/{{ rule.id }}/destinations"
+              style="margin-top: 0.5rem;">
+            <div class="grid">
+                <label>
+                    Destination
+                    <select name="destination_id" required>
+                        {% for d in available_destinations %}
+                            <option value="{{ d.id }}">
+                                {{ d.name }} ({{ d.kind }}){% if not d.enabled %} — disabled{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Ordinal
+                    <input type="number" name="ordinal" value="0">
+                </label>
+            </div>
+            <button type="submit">Bind</button>
+        </form>
+    </details>
+    {% else %}
+        <p><small class="muted">All destinations are already bound (or none exist).
+            <a href="/ui/destinations/new">Create a destination →</a></small></p>
+    {% endif %}
+</section>
+
+{# ---- Danger zone ---- #}
+<section style="margin-top: 3rem;">
+    <details>
+        <summary>Danger zone</summary>
+        <form method="post" action="/ui/rules/{{ rule.id }}/delete"
+              style="margin-top: 1rem;"
+              onsubmit="return confirm('Delete rule {{ rule.name }}? This cannot be undone.');">
+            <button type="submit" class="contrast outline">Delete this rule</button>
+        </form>
+    </details>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% set active = "destinations" %}
+{% block title %}
+{% if mode == "create" %}New destination{% else %}{{ destination.name }} — Destinations{% endif %}
+ — nl-router
+{% endblock %}
+
+{% macro field_error(name) %}
+    {% if errors and errors[name] %}
+        <small class="field-error">{{ errors[name] }}</small>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+<header style="display: flex; align-items: center; gap: 1rem;">
+    <h1 style="margin: 0;">
+        {% if mode == "create" %}New destination{% else %}Edit destination: {{ destination.name }}{% endif %}
+    </h1>
+    <span style="flex: 1;"></span>
+    <a href="/ui/destinations">← back to destinations</a>
+</header>
+
+{% if errors and errors.__form__ %}
+    <div class="flash flash-err">{{ errors.__form__ }}</div>
+{% endif %}
+
+<form method="post"
+      action="{% if mode == 'create' %}/ui/destinations{% else %}/ui/destinations/{{ destination.id }}{% endif %}">
+
+    <label for="name">Name <small class="muted">(unique)</small></label>
+    <input type="text" id="name" name="name" required maxlength="200"
+           value="{{ destination.name }}"
+           aria-invalid="{{ 'true' if errors and errors.name else 'false' }}">
+    {{ field_error("name") }}
+
+    <label for="description">Description <small class="muted">(optional)</small></label>
+    <input type="text" id="description" name="description"
+           value="{{ destination.description or '' }}">
+
+    <div class="grid">
+        <label>
+            Kind
+            {# On create, switching kind reloads the page with that kind's example
+               config so the operator sees the shape. On edit we leave kind editable
+               but the operator has to manually re-paste config for a new shape. #}
+            <select name="kind" id="kind" required
+                    {% if mode == "create" %}onchange="window.location.href='/ui/destinations/new?kind=' + this.value;"{% endif %}>
+                {% for kn in kind_help.keys() %}
+                    <option value="{{ kn }}"
+                            {% if destination.kind == kn %}selected{% endif %}>{{ kn }}</option>
+                {% endfor %}
+            </select>
+            {{ field_error("kind") }}
+        </label>
+
+        <label>
+            Concurrency <small class="muted">(per-destination threads)</small>
+            <input type="number" name="dispatch_concurrency"
+                   min="1" max="64"
+                   value="{{ destination.dispatch_concurrency }}">
+            {{ field_error("dispatch_concurrency") }}
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" name="enabled"
+                   {% if destination.enabled %}checked{% endif %}
+                   style="width: auto;">
+            Enabled
+        </label>
+    </div>
+
+    <label>Credential <small class="muted">(optional — required for HTTP-auth / GCP / S3 destinations)</small></label>
+    <select name="credential_id">
+        <option value="">— none —</option>
+        {% for c in credentials %}
+            <option value="{{ c.id }}"
+                    {% if destination.credential_id == c.id %}selected{% endif %}>
+                {{ c.name }} ({{ c.kind }})
+            </option>
+        {% endfor %}
+    </select>
+
+    <label for="config">Config (JSON)</label>
+    {% if destination.kind and kind_help[destination.kind] %}
+        <small class="muted">{{ kind_help[destination.kind][0] }}</small>
+    {% endif %}
+    <textarea id="config" name="config" rows="14" required
+              aria-invalid="{{ 'true' if errors and errors.config else 'false' }}"
+              style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;">{{ destination.config }}</textarea>
+    {{ field_error("config") }}
+
+    <details style="margin-top: 1rem;">
+        <summary>Retry policy (advanced)</summary>
+        <small class="muted">
+            JSON object: max_attempts, initial_backoff_s, multiplier,
+            max_backoff_s, give_up_after_hours. Leave blank for defaults.
+        </small>
+        <textarea name="retry_policy" rows="8"
+                  placeholder="{{ default_retry_policy }}"
+                  style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;">{{ destination.retry_policy or '' }}</textarea>
+        {{ field_error("retry_policy") }}
+    </details>
+
+    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+        <button type="submit">
+            {% if mode == "create" %}Create destination{% else %}Save changes{% endif %}
+        </button>
+        <a href="/ui/destinations" role="button" class="secondary">Cancel</a>
+    </div>
+</form>
+
+{% if mode == "edit" %}
+<section style="margin-top: 3rem;">
+    <details>
+        <summary>Danger zone</summary>
+        <p><small class="muted">
+            Destinations bound to a rule cannot be deleted until they're unbound.
+            Edit the rules that reference this destination first.
+        </small></p>
+        <form method="post" action="/ui/destinations/{{ destination.id }}/delete"
+              style="margin-top: 1rem;"
+              onsubmit="return confirm('Delete destination {{ destination.name }}? This cannot be undone.');">
+            <button type="submit" class="contrast outline">Delete this destination</button>
+        </form>
+    </details>
+</section>
+{% endif %}
+{% endblock %}
