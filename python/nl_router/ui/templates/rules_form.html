@@ -166,6 +166,100 @@
     {% endif %}
 </section>
 
+{# ---- Processing chain ---- #}
+<section style="margin-top: 3rem;">
+    <h3>Processing chain</h3>
+    <p class="muted">
+        Modules that run between the router and the dispatcher when this
+        rule matches. Each step's <em>ordinal</em> sets the execution
+        order (lower runs first). The router materializes one
+        <code>processing_jobs</code> row per step per matched study, and
+        each step's output becomes the next step's input — so dispatching
+        sees the cumulative result.
+    </p>
+
+    {% if chain_steps %}
+    <table class="dense">
+        <thead><tr>
+            <th>Ord</th><th>Module</th><th>Kind</th><th>Enabled</th>
+            <th>Config override</th><th></th>
+        </tr></thead>
+        <tbody>
+            {% for s in chain_steps %}
+            <tr>
+                <td>{{ s.ordinal }}</td>
+                <td><a href="/ui/processing-modules/{{ s.module_id }}">{{ s.module_name }}</a></td>
+                <td><code>{{ s.module_kind }}</code></td>
+                <td>{{ "yes" if s.module_enabled else "no" }}</td>
+                <td>
+                    {% if s.override_pretty %}
+                    <details>
+                        <summary>{{ s.config_override.keys() | list | length }} key(s)</summary>
+                        <pre style="margin-top: 0.5rem; font-size: 0.8rem;">{{ s.override_pretty }}</pre>
+                    </details>
+                    {% else %}
+                        <small class="muted">— (uses module default)</small>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post"
+                          action="/ui/rules/{{ rule.id }}/processing-chain/{{ s.id }}/delete"
+                          style="display: inline; margin: 0;"
+                          onsubmit="return confirm('Remove {{ s.module_name }} from this rule?');">
+                        <button type="submit" class="secondary outline"
+                                style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
+                            remove
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p><em>No processing chain on this rule — matched studies dispatch
+            their original files unchanged.</em></p>
+    {% endif %}
+
+    {% if available_modules %}
+    <details>
+        <summary>+ Add processing step</summary>
+        <form method="post" action="/ui/rules/{{ rule.id }}/processing-chain"
+              style="margin-top: 0.5rem;">
+            <div class="grid">
+                <label>
+                    Module
+                    <select name="module_id" required>
+                        {% for m in available_modules %}
+                            <option value="{{ m.id }}">
+                                {{ m.name }} ({{ m.kind }}){% if not m.enabled %} — disabled{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Ordinal
+                    {# Default to len(chain_steps) so new steps land at the end. #}
+                    <input type="number" name="ordinal" min="0" max="255"
+                           value="{{ chain_steps | length }}">
+                </label>
+            </div>
+            <label>
+                Config override (JSON object, optional)
+                <textarea name="config_override" rows="4"
+                          placeholder='{"value": "NVRA"}  // overrides the module default'
+                          style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;"></textarea>
+            </label>
+            <button type="submit">Add step</button>
+        </form>
+    </details>
+    {% else %}
+        <p><small class="muted">All registered modules are already in this rule's chain
+            (or none exist).
+            <a href="/ui/processing-modules">Browse modules →</a></small></p>
+    {% endif %}
+</section>
+
 {# ---- Danger zone ---- #}
 <section style="margin-top: 3rem;">
     <details>

@@ -216,6 +216,100 @@ class RuleDestinationOut(BaseModel):
 
 
 # ============================================================
+# Processing modules + per-rule processing chain (M15)
+# ============================================================
+
+
+class ProcessingModuleBase(BaseModel):
+    """A registered processing module — the operator-visible record that
+    ties a `kind` (which maps to a binary at
+    /usr/libexec/nl-router/modules/<kind>) to a defaults+enabled flag.
+
+    The .deb's migration 0009 pre-registers anonymize_basic and
+    standardize_institution_group. Operators add rows manually for
+    custom modules they've installed on the host.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name:        str  = Field(..., min_length=1, max_length=200,
+                              description="Unique, human-readable.")
+    description: str | None = Field(default=None)
+    kind:        str  = Field(..., min_length=1, max_length=200,
+                              description=(
+                                  "Selector for the worker binary at "
+                                  "/usr/libexec/nl-router/modules/<kind>, "
+                                  "and the NL_ROUTER_MODULE_KIND filter "
+                                  "the worker polls processing_jobs with."
+                              ))
+    config:      dict[str, Any] = Field(default_factory=dict,
+                                         description=(
+                                             "Module default config. The router "
+                                             "merges this with rule_processing_chain."
+                                             "config_override at job-creation time."
+                                         ))
+    enabled:     bool = Field(default=True)
+
+
+class ProcessingModuleCreate(ProcessingModuleBase):
+    pass
+
+
+class ProcessingModuleUpdate(BaseModel):
+    """Partial update — every field optional except (renaming is allowed
+    by changing `name`; kind is intentionally NOT updatable because it
+    drives which worker pool picks the row up — change `kind` and the
+    rows in flight stop being processed)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name:        str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    config:      dict[str, Any] | None = None
+    enabled:     bool | None = None
+
+
+class ProcessingModuleOut(ProcessingModuleBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---- rule_processing_chain ----
+
+
+class ChainStepIn(BaseModel):
+    """Add or update one step of a rule's processing chain.
+
+    The router picks up new steps on its next rule-cache refresh
+    (default 15s). Existing in-flight processing_jobs rows are
+    unaffected — chain changes only apply to future routings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    module_id:       int  = Field(..., description="processing_modules.id")
+    ordinal:         int  = Field(..., ge=0, le=255,
+                                   description="Position in the chain (lower = earlier).")
+    config_override: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional per-rule config object. Merged over the module's "
+            "default config at processing_jobs INSERT time."
+        ),
+    )
+
+
+class ChainStepOut(BaseModel):
+    id:              int
+    rule_id:         int
+    module_id:       int
+    module_name:     str
+    module_kind:     str
+    ordinal:         int
+    config_override: dict[str, Any] | None
+
+
+# ============================================================
 # work_queue (read-only)
 # ============================================================
 

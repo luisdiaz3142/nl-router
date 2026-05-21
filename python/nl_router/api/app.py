@@ -23,6 +23,7 @@ from nl_router.api.routes import (
     credentials,
     destinations,
     health,
+    processing_modules,
     rules,
     tokens,
     workqueue,
@@ -31,6 +32,7 @@ from nl_router.db import pool
 from nl_router.ui import routes as ui_routes
 from nl_router.ui import routes_destinations as ui_routes_destinations
 from nl_router.ui import routes_misc as ui_routes_misc
+from nl_router.ui import routes_processing as ui_routes_processing
 from nl_router.ui import routes_rules as ui_routes_rules
 from nl_router.ui import routes_studies as ui_routes_studies
 from nl_router.ui.auth import UIAuthRequired, login_redirect
@@ -80,6 +82,8 @@ def create_app() -> FastAPI:
     app.include_router(audit.router,        prefix="/api/v1")      # /api/v1/audit
     app.include_router(credentials.router,  prefix="/api/v1")      # /api/v1/credentials
     app.include_router(tokens.router,       prefix="/api/v1")      # /api/v1/tokens
+    app.include_router(processing_modules.router,       prefix="/api/v1")  # /api/v1/processing-modules
+    app.include_router(processing_modules.chain_router, prefix="/api/v1")  # /api/v1/rules/{id}/processing-chain
 
     # UI routes — server-rendered Jinja2 + HTMX. Excluded from OpenAPI
     # via include_in_schema=False on the router itself.
@@ -88,6 +92,8 @@ def create_app() -> FastAPI:
     app.include_router(ui_routes_destinations.router)              # /ui/destinations
     app.include_router(ui_routes_studies.router)                   # /ui/studies
     app.include_router(ui_routes_misc.router)                      # /ui/credentials, /holds, /audit, /config
+    app.include_router(ui_routes_processing.router)                # /ui/processing-modules
+    app.include_router(ui_routes_processing.chain_router)          # /ui/rules/{id}/processing-chain
     _static_dir = Path(__file__).parent.parent / "ui" / "static"
     if _static_dir.exists():
         app.mount("/ui/static", StaticFiles(directory=str(_static_dir)), name="ui-static")

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% set active = "modules" %}
+{% block title %}
+{% if mode == "create" %}Register module{% else %}{{ module.name }} — modules{% endif %}
+ — nl-router
+{% endblock %}
+
+{% macro field_error(name) %}
+    {% if errors and errors[name] %}
+        <small class="field-error">{{ errors[name] }}</small>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+<header style="display: flex; align-items: center; gap: 1rem;">
+    <h1 style="margin: 0;">
+        {% if mode == "create" %}Register processing module{% else %}Edit module: {{ module.name }}{% endif %}
+    </h1>
+    <span style="flex: 1;"></span>
+    <a href="/ui/processing-modules">← back to modules</a>
+</header>
+
+{% if errors and errors.__form__ %}
+    <div class="flash flash-err">{{ errors.__form__ }}</div>
+{% endif %}
+
+<form method="post"
+      action="{% if mode == 'create' %}/ui/processing-modules{% else %}/ui/processing-modules/{{ module.id }}{% endif %}">
+
+    <label for="name">Name <small class="muted">(unique, human-readable)</small></label>
+    <input type="text" id="name" name="name" required maxlength="200"
+           value="{{ module.name }}"
+           aria-invalid="{{ 'true' if errors and errors.name else 'false' }}">
+    {{ field_error("name") }}
+
+    <label for="description">Description</label>
+    <input type="text" id="description" name="description"
+           value="{{ module.description or '' }}">
+
+    <label for="kind">Kind <small class="muted">
+        (selects the worker binary at
+        <code>/usr/libexec/nl-router/modules/&lt;kind&gt;</code> and the
+        <code>NL_ROUTER_MODULE_KIND</code> the worker filters
+        <code>processing_jobs</code> by)
+    </small></label>
+    <input type="text" id="kind" name="kind" required maxlength="200"
+           value="{{ module.kind }}"
+           {% if mode == "edit" %}readonly{% endif %}
+           aria-invalid="{{ 'true' if errors and errors.kind else 'false' }}">
+    {{ field_error("kind") }}
+    {% if mode == "edit" %}
+        <small class="muted">
+            Kind is read-only on edit — changing it would orphan in-flight
+            processing_jobs claimed for the old kind. Delete this module
+            and create a new one if you need a different kind.
+        </small>
+    {% endif %}
+
+    <label style="display: flex; align-items: center; gap: 0.5rem;">
+        <input type="checkbox" name="enabled"
+               {% if module.enabled %}checked{% endif %}
+               style="width: auto;">
+        Enabled
+    </label>
+
+    <label for="config">Default config (JSON object)</label>
+    <small class="muted">
+        Module-level defaults. Each rule's <code>config_override</code>
+        is merged on top at <code>processing_jobs</code> insert time.
+    </small>
+    <textarea id="config" name="config" rows="8"
+              aria-invalid="{{ 'true' if errors and errors.config else 'false' }}"
+              style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;">{{ module.config }}</textarea>
+    {{ field_error("config") }}
+
+    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+        <button type="submit">
+            {% if mode == "create" %}Register module{% else %}Save changes{% endif %}
+        </button>
+        <a href="/ui/processing-modules" role="button" class="secondary">Cancel</a>
+    </div>
+</form>
+
+{% if mode == "edit" %}
+
+{# ---- Used by which rules ---- #}
+<section style="margin-top: 3rem;">
+    <h3>Used by rules ({{ used_by | length if used_by else 0 }})</h3>
+    {% if used_by %}
+    <table class="dense">
+        <thead><tr><th>Rule</th><th>Status</th><th>Ordinal</th><th>Override</th></tr></thead>
+        <tbody>
+            {% for u in used_by %}
+            <tr>
+                <td><a href="/ui/rules/{{ u.rule_id }}">{{ u.rule_name }}</a></td>
+                <td>
+                    <span class="pill pill-{{ 'ok' if u.rule_status == 'enabled' else 'muted' }}">
+                        {{ u.rule_status }}
+                    </span>
+                </td>
+                <td>{{ u.ordinal }}</td>
+                <td><small><code>{{ u.config_override or "—" }}</code></small></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p><em>Not attached to any rules yet.</em></p>
+    {% endif %}
+</section>
+
+{# ---- Danger zone ---- #}
+<section style="margin-top: 3rem;">
+    <details>
+        <summary>Danger zone</summary>
+        <p><small class="muted">
+            Modules attached to any rule cannot be deleted until they're
+            unbound from every rule (FK constraint on rule_processing_chain).
+        </small></p>
+        <form method="post" action="/ui/processing-modules/{{ module.id }}/delete"
+              style="margin-top: 1rem;"
+              onsubmit="return confirm('Delete module {{ module.name }}? This cannot be undone.');">
+            <button type="submit" class="contrast outline">Delete this module</button>
+        </form>
+    </details>
+</section>
+{% endif %}
+{% endblock %}

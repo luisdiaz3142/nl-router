@@ -160,10 +160,42 @@ async def edit_rule_page(
         """, (rid,))
         available_destinations = list(cur.fetchall())
 
+        # Processing chain — ordered by ordinal so the operator sees the
+        # execution order at a glance.
+        cur.execute("""
+            SELECT rpc.id, rpc.module_id, rpc.ordinal, rpc.config_override,
+                   m.name AS module_name, m.kind AS module_kind, m.enabled AS module_enabled
+              FROM rule_processing_chain rpc
+              JOIN processing_modules m ON m.id = rpc.module_id
+             WHERE rpc.rule_id = %s
+             ORDER BY rpc.ordinal, rpc.id
+        """, (rid,))
+        chain_steps = []
+        for s in cur.fetchall():
+            s = dict(s)
+            s["override_pretty"] = (
+                json.dumps(s["config_override"], indent=2)
+                if s["config_override"] else None
+            )
+            chain_steps.append(s)
+
+        # Modules not already in the chain — operator picks from this
+        # set when adding a new step.
+        cur.execute("""
+            SELECT id, name, kind, enabled
+              FROM processing_modules
+             WHERE id NOT IN (
+                SELECT module_id FROM rule_processing_chain WHERE rule_id = %s
+             )
+             ORDER BY name
+        """, (rid,))
+        available_modules = list(cur.fetchall())
+
     return render(
         request, "rules_form.html",
         auth=auth, mode="edit", rule=rule, errors={},
         bindings=bindings, available_destinations=available_destinations,
+        chain_steps=chain_steps, available_modules=available_modules,
     )
 
 
@@ -197,6 +229,7 @@ async def update_rule(
                   "status": status_, "dispatch_order": dispatch_order},
             errors=errors,
             bindings=[], available_destinations=[],
+            chain_steps=[], available_modules=[],
         )
 
     with pool().connection() as conn, conn.cursor() as cur:
