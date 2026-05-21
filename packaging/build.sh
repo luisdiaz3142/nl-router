@@ -80,8 +80,13 @@ install -m0755 cpp/build-pkg/dispatcher/nl-dispatch "${STAGING}/usr/bin/"
 install -m0755 cpp/build-pkg/cleaner/nl-clean       "${STAGING}/usr/bin/"
 
 # Module binaries — staged under their DB-kind name (no nl-mod- prefix).
+# Each binary's filename here MUST match the processing_modules.kind value
+# the operator references from rule_processing_chain; that's the path the
+# systemd template (nl-router-module@.service) execs.
 install -m0755 cpp/build-pkg/modules/anonymize_basic/nl-mod-anonymize-basic \
     "${STAGING}/usr/libexec/nl-router/modules/anonymize_basic"
+install -m0755 cpp/build-pkg/modules/standardize_institution_group/nl-mod-standardize-institution-group \
+    "${STAGING}/usr/libexec/nl-router/modules/standardize_institution_group"
 
 # golang-migrate (bundled into the build container; falls back to system
 # binary outside the container — convenient for local hand-builds).

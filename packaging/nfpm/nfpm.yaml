@@ -94,6 +94,10 @@ contents:
     dst: /usr/libexec/nl-router/modules/anonymize_basic
     file_info:
       mode: 0755
+  - src: "${STAGING}/usr/libexec/nl-router/modules/standardize_institution_group"
+    dst: /usr/libexec/nl-router/modules/standardize_institution_group
+    file_info:
+      mode: 0755
 
   # ---- Python wheel ----------------------------------------------------
   # Installed into a venv by the postinstall script. We keep the wheel's

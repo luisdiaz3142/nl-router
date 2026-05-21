@@ -4,6 +4,7 @@
 
 add_subdirectory(common)
 add_subdirectory(anonymize_basic)
+add_subdirectory(standardize_institution_group)
 
 # Future kinds:
 #   add_subdirectory(anonymize_dicom_psi)
