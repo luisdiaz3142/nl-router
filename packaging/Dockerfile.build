@@ -22,6 +22,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # ---- System deps (build + runtime support for nfpm) ---------------------
+# Notably absent: libdcmtk-dev / libdcmtk17. Debian's libdcmtk-dev ships
+# only .so symlinks, not the .a archives we need for the static-link
+# portability build. We compile DCMTK from source ourselves below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -32,20 +35,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gettext-base \
     # C++ deps for the daemons + modules.
-    libdcmtk-dev \
     libpq-dev \
     libssl-dev \
     libssl3 \
+    zlib1g-dev \
     nlohmann-json3-dev \
     libcurl4-openssl-dev \
     # Python (CLI + API).
     python3 \
     python3-venv \
     python3-pip \
-    # Runtime deps needed inside the build container for testing the .deb.
-    libdcmtk17 \
+    # Runtime deps needed inside the build container for the wheel/venv build.
     libpq5 \
  && rm -rf /var/lib/apt/lists/*
+
+# ---- DCMTK from source (static + PIC) -----------------------------------
+# We build DCMTK ourselves so we get the .a archives + position-
+# independent code that distro packages don't ship. The pinned version
+# (3.6.9, current upstream as of 2026) means our binaries link against
+# the same DCMTK regardless of what the host distro happens to package.
+# DCMTK_ENABLE_BUILTIN_DICTIONARY=ON embeds the data dictionary so the
+# binaries don't need DCMDICTPATH at runtime — another portability win.
+#
+# This layer is ~10 min to build first time but Docker caches it. Cache
+# is invalidated only when DCMTK_VERSION or the install flags change.
+ARG DCMTK_VERSION=3.6.9
+RUN curl -sSL "https://github.com/DCMTK/dcmtk/archive/refs/tags/DCMTK-${DCMTK_VERSION}.tar.gz" \
+        -o /tmp/dcmtk.tar.gz \
+ && cd /tmp \
+ && tar -xzf dcmtk.tar.gz \
+ && cd dcmtk-DCMTK-${DCMTK_VERSION} \
+ && cmake -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DDCMTK_WITH_OPENSSL=ON \
+        -DDCMTK_WITH_ZLIB=ON \
+        -DDCMTK_WITH_PNG=OFF \
+        -DDCMTK_WITH_TIFF=OFF \
+        -DDCMTK_WITH_XML=OFF \
+        -DDCMTK_WITH_ICU=OFF \
+        -DDCMTK_ENABLE_BUILTIN_DICTIONARY=ON \
+        -DDCMTK_ENABLE_EXTERNAL_DICTIONARY=OFF \
+        -DDCMTK_DEFAULT_DICT=builtin \
+        -DDCMTK_ENABLE_PRIVATE_TAGS=OFF \
+        -DBUILD_APPS=OFF \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+ && cmake --build build --parallel \
+ && cmake --install build \
+ && cd / \
+ && rm -rf /tmp/dcmtk.tar.gz /tmp/dcmtk-DCMTK-${DCMTK_VERSION}
 
 # ---- nfpm -------------------------------------------------------------
 # nfpm is a Go binary; pin to a known release for reproducibility.

@@ -52,6 +52,17 @@ endif()
 # ---- Options ------------------------------------------------------------
 option(NL_ROUTER_BUILD_TESTS "Build unit tests (Catch2)" ON)
 
+# Link DCMTK as static archives instead of shared objects. Enabled by
+# the package build (packaging/build.sh) so the resulting .deb / .rpm
+# binaries don't depend on a specific libdcmtk.so SOVERSION at runtime
+# — DCMTK bumps its SOVERSION roughly every release (3.6.7 → .17,
+# 3.6.9 → .19, etc.) and that breaks portability across distros.
+#
+# Off by default so dev builds (on macOS with brew, or on a Linux
+# host with libdcmtk-dev) keep the snappier dynamic-link path.
+option(NL_ROUTER_STATIC_DCMTK
+       "Link DCMTK as static archives — portable across distros" OFF)
+
 if(NL_ROUTER_BUILD_TESTS)
     # Enables ctest at the top-level so subdirectory test registrations
     # (via catch_discover_tests) actually surface in `ctest --output-on-failure`.

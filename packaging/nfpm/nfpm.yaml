@@ -29,11 +29,22 @@ license: TBD
 # modules, FastAPI API, and golang-migrate all ship together. Operators on
 # worker-only nodes pay the cost of Python deps they don't run — accepted
 # tradeoff for install simplicity. A split (-core / -api) is a v2 option.
+#
+# Baseline target: Debian 12+ / Ubuntu 24.04+ / RHEL 9+ / Amazon Linux
+# 2023+ — anything shipping Python 3.11 in its default repos. Ubuntu
+# 22.04 ships Python 3.10 by default and isn't supported out of the
+# box; operators on 22.04 can backport via the deadsnakes PPA.
+#
+# DCMTK is statically linked into the binaries (see packaging/build.sh
+# and cpp/cmake/FindDCMTK.cmake) so we deliberately do NOT depend on
+# any libdcmtk* package — the SOVERSION churns across distros (3.6.7 →
+# .17, 3.6.9 → .19, etc.) and pinning would break portability.
 depends:
   - python3 (>= 3.11)
   - python3-venv
   - libpq5
-  - libssl3 | libssl1.1
+  - libssl3
+  - libcurl4
   - systemd
 
 # RPM uses different package names for the same libraries.

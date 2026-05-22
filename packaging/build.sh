@@ -46,9 +46,14 @@ echo ">>> [1/5] building C++ daemons + modules"
 # library paths that include the multiarch suffix, e.g.
 # /usr/lib/x86_64-linux-gnu vs /usr/lib/aarch64-linux-gnu).
 rm -rf cpp/build-pkg
+# NL_ROUTER_STATIC_DCMTK=ON statically links DCMTK into every C++ binary
+# so the resulting .deb / .rpm don't depend on the host's libdcmtk.so
+# SOVERSION. Lets one set of artifacts target Debian 12+, Ubuntu 22.04+,
+# RHEL 9+, etc. — see cpp/cmake/FindDCMTK.cmake for the implementation.
 cmake -S cpp -B cpp/build-pkg -G Ninja \
       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DNL_ROUTER_BUILD_TESTS=OFF
+      -DNL_ROUTER_BUILD_TESTS=OFF \
+      -DNL_ROUTER_STATIC_DCMTK=ON
 cmake --build cpp/build-pkg --parallel
 
 # ---- 2. Build Python wheel ---------------------------------------------
