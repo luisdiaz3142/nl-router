@@ -47,6 +47,7 @@ add_executable(nl-route
     src/rule_cache.cpp
     src/context_builder.cpp
     src/server.cpp
+    src/metrics.cpp
 )
 
 target_include_directories(nl-route PRIVATE
@@ -56,6 +57,7 @@ target_include_directories(nl-route PRIVATE
 
 target_link_libraries(nl-route PRIVATE
     nl_router::dsl
+    nl_router_metrics
     nlohmann_json::nlohmann_json
     ${PostgreSQL_LIBRARIES}
 )

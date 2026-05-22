@@ -40,6 +40,10 @@ api = [
     "python-multipart>=0.0.9",
     "authlib>=1.3",
     "argon2-cffi>=23.1",
+    # M17: Prometheus metrics for the management API process. Mirrors the
+    # native daemons' /metrics surface; uses a dedicated port (9184 by
+    # default) served by prometheus_client.start_http_server().
+    "prometheus-client>=0.20",
 ]
 dev = [
     "pytest>=8.0",

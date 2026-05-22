@@ -46,6 +46,8 @@ Config load_config() {
     c.batch_size            = env_int<std::uint32_t>("NL_ROUTER_BATCH_SIZE",            c.batch_size);
     c.lease_seconds         = env_int<std::uint32_t>("NL_ROUTER_LEASE_SECONDS",         c.lease_seconds);
     c.destination_refresh_s = env_int<std::uint32_t>("NL_ROUTER_DESTINATION_REFRESH_S", c.destination_refresh_s);
+    c.metrics_port          = env_int<std::uint16_t>("NL_ROUTER_METRICS_PORT",          c.metrics_port);
+    c.metrics_bind_addr     = env_or("NL_ROUTER_METRICS_BIND_ADDR",                     c.metrics_bind_addr);
     c.log_level             = env_or("NL_ROUTER_LOG_LEVEL", c.log_level);
     return c;
 }

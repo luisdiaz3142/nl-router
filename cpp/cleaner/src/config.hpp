@@ -37,13 +37,21 @@ struct Config {
     // unboundedly with the cleaned-row backlog.
     std::uint32_t prune_batch {500};
 
+    // Prometheus /metrics HTTP exposer. Port 0 disables — useful for
+    // tests. 9183 is the design-plan default for the cleaner;
+    // receiver=9180, route=9181, dispatcher=9182, api=9184.
+    std::uint16_t metrics_port      {9183};
+    std::string   metrics_bind_addr {"0.0.0.0"};
+
     // Logging verbosity.
     std::string log_level {"info"};
 };
 
 // Required: NL_ROUTER_SERVER_ID, NL_ROUTER_DATABASE_URL (or DATABASE_URL).
 // Optional: NL_ROUTER_LANDING_ZONE, NL_ROUTER_SCAN_INTERVAL_S,
-//           NL_ROUTER_FILE_BATCH, NL_ROUTER_PRUNE_BATCH, NL_ROUTER_LOG_LEVEL.
+//           NL_ROUTER_FILE_BATCH, NL_ROUTER_PRUNE_BATCH,
+//           NL_ROUTER_METRICS_PORT, NL_ROUTER_METRICS_BIND_ADDR,
+//           NL_ROUTER_LOG_LEVEL.
 Config load_config();
 
 }  // namespace nlr

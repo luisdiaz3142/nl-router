@@ -31,5 +31,6 @@ target_include_directories(nl_router_module PRIVATE
     ${PostgreSQL_INCLUDE_DIRS}
 )
 target_link_libraries(nl_router_module PUBLIC
+    nl_router_metrics
     ${PostgreSQL_LIBRARIES}
 )

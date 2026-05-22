@@ -12,11 +12,12 @@
 namespace nlr {
 
 Worker::Worker(const Config& cfg, Destination destination, const std::string& worker_id,
-               std::vector<std::uint8_t> kek)
+               std::vector<std::uint8_t> kek, const DispatcherMetrics& metrics)
     : cfg_(cfg),
       destination_(std::move(destination)),
       worker_id_(worker_id),
-      kek_(std::move(kek))
+      kek_(std::move(kek)),
+      metrics_(metrics)
 {
     db_      = std::make_unique<Db>(cfg_.database_url);
     handler_ = make_handler(destination_.kind);
@@ -135,14 +136,24 @@ void Worker::run_() {
                     cred_failure = DispatchResult::transient(
                         std::string{"credential fetch: "} + e.what());
                 }
+                if (cred_failed) {
+                    metrics_.credential_fetch_failures_total.self().inc();
+                }
             }
 
             // Step 2: dispatch. Either short-circuit with the credential
-            // failure, or invoke the handler.
+            // failure, or invoke the handler. Wrap the handler call in
+            // a worker_busy gauge toggle + duration histogram so the
+            // dashboard can graph in-flight count and dispatch latency
+            // per kind.
             DispatchResult result = DispatchResult::permanent("uninitialized");
+            const std::string dst_id_label = std::to_string(dst.id);
             if (cred_failed) {
                 result = std::move(cred_failure);
             } else {
+                using clock = std::chrono::steady_clock;
+                metrics_.worker_busy.labels({dst_id_label}).set(1);
+                const auto t0 = clock::now();
                 try {
                     result = handler_->dispatch(a, dst);
                 } catch (const std::exception& e) {
@@ -151,12 +162,18 @@ void Worker::run_() {
                 } catch (...) {
                     result = DispatchResult::transient("uncaught: unknown");
                 }
+                const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(
+                    clock::now() - t0).count();
+                metrics_.dispatch_duration_seconds.labels({dst.kind}).observe(dt);
+                metrics_.worker_busy.labels({dst_id_label}).set(0);
             }
 
             try {
                 switch (result.status) {
                     case DispatchResult::Status::Success: {
                         db_->mark_dispatched(a.id, result.response_detail_json);
+                        metrics_.assignments_total.labels(
+                            {dst.kind, "dispatched"}).inc();
                         LOG_INFO("worker.dispatched",
                             "assignment_id",  std::to_string(a.id),
                             "destination_id", std::to_string(dst.id),
@@ -168,6 +185,13 @@ void Worker::run_() {
                         const bool permanent = db_->mark_failed_with_retry(
                             a.id, result.error_message,
                             result.response_detail_json, dst);
+                        // mark_failed_with_retry returns true when this
+                        // attempt exceeded give_up_after_hours — at that
+                        // point a transient becomes effectively permanent.
+                        metrics_.assignments_total.labels(
+                            {dst.kind,
+                             cred_failed ? "cred_fail" :
+                                          (permanent ? "permanent_fail" : "transient_fail")}).inc();
                         LOG_WARN(permanent ? "worker.failed_permanent" : "worker.failed_retry",
                             "assignment_id",  std::to_string(a.id),
                             "destination_id", std::to_string(dst.id),
@@ -178,6 +202,9 @@ void Worker::run_() {
                     case DispatchResult::Status::PermanentFail: {
                         db_->mark_failed_permanent(a.id, result.error_message,
                                                     result.response_detail_json);
+                        metrics_.assignments_total.labels(
+                            {dst.kind,
+                             cred_failed ? "cred_fail" : "permanent_fail"}).inc();
                         LOG_ERROR("worker.failed_permanent",
                             "assignment_id",  std::to_string(a.id),
                             "destination_id", std::to_string(dst.id),

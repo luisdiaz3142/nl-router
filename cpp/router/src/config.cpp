@@ -48,6 +48,8 @@ Config load_config() {
     c.lease_seconds        = env_int<std::uint32_t>("NL_ROUTER_LEASE_SECONDS", c.lease_seconds);
     c.rule_cache_refresh_s = env_int<std::uint32_t>("NL_ROUTER_RULE_CACHE_REFRESH_S",
                                                      c.rule_cache_refresh_s);
+    c.metrics_port         = env_int<std::uint16_t>("NL_ROUTER_METRICS_PORT", c.metrics_port);
+    c.metrics_bind_addr    = env_or("NL_ROUTER_METRICS_BIND_ADDR", c.metrics_bind_addr);
     c.log_level            = env_or("NL_ROUTER_LOG_LEVEL", c.log_level);
     return c;
 }

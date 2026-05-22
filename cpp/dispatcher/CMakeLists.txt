@@ -76,6 +76,7 @@ add_executable(nl-dispatch
     src/template.cpp
     src/worker.cpp
     src/server.cpp
+    src/metrics.cpp
 )
 
 target_include_directories(nl-dispatch PRIVATE
@@ -92,6 +93,7 @@ endif()
 target_link_libraries(nl-dispatch PRIVATE
     DCMTK::DCMTK
     nl_router::crypto
+    nl_router_metrics
     nlohmann_json::nlohmann_json
     CURL::libcurl
     ${PostgreSQL_LIBRARIES}

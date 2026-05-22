@@ -22,6 +22,10 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <vector>
+
+#include "nl_router/metrics/exposer.hpp"
+#include "nl_router/metrics/registry.hpp"
 
 namespace nl_router::module {
 
@@ -112,6 +116,11 @@ struct Config {
     std::uint32_t poll_interval_ms {500};
     std::uint32_t batch_size       {4};
     std::uint32_t lease_seconds    {300};
+    // 0 = disabled. Operators assign a unique port per module-kind on
+    // each node (design plan: 9190+, one per kind). Left at 0 in dev so
+    // we don't collide with other workers.
+    std::uint16_t metrics_port      {0};
+    std::string   metrics_bind_addr {"0.0.0.0"};
 };
 
 Config load_config() {
@@ -122,7 +131,61 @@ Config load_config() {
     c.poll_interval_ms = env_int<std::uint32_t>("NL_ROUTER_POLL_INTERVAL_MS", c.poll_interval_ms);
     c.batch_size       = env_int<std::uint32_t>("NL_ROUTER_BATCH_SIZE",      c.batch_size);
     c.lease_seconds    = env_int<std::uint32_t>("NL_ROUTER_LEASE_SECONDS",   c.lease_seconds);
+    c.metrics_port     = env_int<std::uint16_t>("NL_ROUTER_METRICS_PORT",    c.metrics_port);
+    c.metrics_bind_addr = env_or("NL_ROUTER_METRICS_BIND_ADDR", c.metrics_bind_addr);
     return c;
+}
+
+// ---- worker metrics catalog ----
+//
+// Same shape across all module kinds; the per-kind dimension is the
+// scrape target itself (operators assign one /metrics port per kind, and
+// the Prometheus job label distinguishes them).
+//
+// Catalog:
+//   nl_module_jobs_total{result}             counter
+//     result ∈ {success, failure, exception}
+//   nl_module_job_duration_seconds           histogram (wall clock per job)
+//   nl_module_jobs_active                    gauge  (in-flight count)
+//   nl_module_claim_iterations_total{result} counter
+//     result ∈ {success, empty, error}
+//   nl_module_status_update_failures_total   counter
+//     (mark-done / mark-failed / rollup SQL errors)
+struct WorkerMetrics {
+    nlr::metrics::CounterFamily&   jobs_total;
+    nlr::metrics::HistogramFamily& job_duration_seconds;
+    nlr::metrics::GaugeFamily&     jobs_active;
+    nlr::metrics::CounterFamily&   claim_iterations_total;
+    nlr::metrics::CounterFamily&   status_update_failures_total;
+};
+
+WorkerMetrics register_metrics(nlr::metrics::Registry& r) {
+    // Sub-second to several minutes. Some modules (transcode of a big
+    // study) can take a while; cap at 600s.
+    static const std::vector<double> kDur =
+        {0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600};
+    return WorkerMetrics{
+        .jobs_total = r.counter(
+            "nl_module_jobs_total",
+            "processing_jobs rows finalized by this worker, by outcome",
+            {"result"}),
+        .job_duration_seconds = r.histogram(
+            "nl_module_job_duration_seconds",
+            "Wall-clock duration of one user-supplied process() call",
+            kDur),
+        .jobs_active = r.gauge(
+            "nl_module_jobs_active",
+            "Jobs currently inside process() on this worker"),
+        .claim_iterations_total = r.counter(
+            "nl_module_claim_iterations_total",
+            "Poll-loop claim outcomes",
+            {"result"}),
+        .status_update_failures_total = r.counter(
+            "nl_module_status_update_failures_total",
+            "Failures during mark-done / mark-failed / rollup SQL after a "
+            "completed job. Distinct from job failures — these indicate DB "
+            "trouble, not module-level errors."),
+    };
 }
 
 // ---- SQL ----
@@ -241,20 +304,34 @@ int run_worker(int /*argc*/, char** /*argv*/, const ProcessFn& process) {
     std::signal(SIGTERM, [](int){ stop_requested.store(true); });
     std::signal(SIGPIPE, SIG_IGN);
 
+    // Metrics: register the catalog and optionally start the HTTP exposer.
+    // Done before opening the DB so a metrics-port collision fails fast
+    // instead of after we've claimed any work.
+    auto& registry  = nlr::metrics::Registry::global();
+    WorkerMetrics m = register_metrics(registry);
+    std::unique_ptr<nlr::metrics::Exposer> exposer;
+    if (cfg.metrics_port != 0) {
+        exposer = std::make_unique<nlr::metrics::Exposer>(
+            registry, cfg.metrics_port, cfg.metrics_bind_addr);
+        exposer->start();
+    }
+
     // DB connection.
     PGconn* conn = PQconnectdb(cfg.database_url.c_str());
     if (PQstatus(conn) != CONNECTION_OK) {
         std::string err = PQerrorMessage(conn);
         PQfinish(conn);
         LOG_ERROR("db.connect_failed", {"error", err});
+        if (exposer) exposer->stop();
         return 1;
     }
     LOG_INFO("module.start",
-        {"server_id",   cfg.server_id},
-        {"module_kind", cfg.module_kind},
-        {"poll_ms",     std::to_string(cfg.poll_interval_ms)},
-        {"batch",       std::to_string(cfg.batch_size)},
-        {"lease_s",     std::to_string(cfg.lease_seconds)});
+        {"server_id",    cfg.server_id},
+        {"module_kind",  cfg.module_kind},
+        {"poll_ms",      std::to_string(cfg.poll_interval_ms)},
+        {"batch",        std::to_string(cfg.batch_size)},
+        {"lease_s",      std::to_string(cfg.lease_seconds)},
+        {"metrics_port", std::to_string(cfg.metrics_port)});
 
     char hostname[256] = {};
     gethostname(hostname, sizeof(hostname) - 1);
@@ -281,16 +358,19 @@ int run_worker(int /*argc*/, char** /*argv*/, const ProcessFn& process) {
         if (PQresultStatus(r.r) != PGRES_TUPLES_OK) {
             LOG_ERROR("module.claim_failed",
                 {"error", PQerrorMessage(conn)});
+            m.claim_iterations_total.labels({"error"}).inc();
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(cfg.poll_interval_ms));
             continue;
         }
         const int n = PQntuples(r.r);
         if (n == 0) {
+            m.claim_iterations_total.labels({"empty"}).inc();
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(cfg.poll_interval_ms));
             continue;
         }
+        m.claim_iterations_total.labels({"success"}).inc();
 
         for (int i = 0; i < n; ++i) {
             if (stop_requested.load(std::memory_order_relaxed)) break;
@@ -303,13 +383,32 @@ int run_worker(int /*argc*/, char** /*argv*/, const ProcessFn& process) {
 
             // Invoke the user-supplied processing function.
             ProcessResult result = ProcessResult::failure("uninitialized");
+            bool threw = false;
+            const auto job_start = std::chrono::steady_clock::now();
+            m.jobs_active.self().inc();
             try {
                 result = process(input_path, output_path, config_json);
             } catch (const std::exception& e) {
+                threw = true;
                 result = ProcessResult::failure(std::string{"uncaught: "} + e.what());
             } catch (...) {
+                threw = true;
                 result = ProcessResult::failure("uncaught: unknown");
             }
+            m.jobs_active.self().dec();
+            const double elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - job_start).count();
+            m.job_duration_seconds.self().observe(elapsed);
+
+            // Classify outcome for jobs_total. 'exception' is the
+            // catch-all path — distinct from 'failure' (modules returning
+            // a clean ProcessResult::failure()), which lets dashboards
+            // alert on unexpected crashes separately from operator-flagged
+            // failures.
+            const char* job_result =
+                (result.status == ProcessResult::Status::Success) ? "success"
+                : threw ? "exception" : "failure";
+            m.jobs_total.labels({job_result}).inc();
 
             const std::string id_s = std::to_string(job_id);
             try {
@@ -367,6 +466,7 @@ int run_worker(int /*argc*/, char** /*argv*/, const ProcessFn& process) {
                 }
             } catch (const std::exception& e) {
                 ResultGuard rb{PQexec(conn, "ROLLBACK")};
+                m.status_update_failures_total.self().inc();
                 LOG_ERROR("module.status_update_failed",
                     {"job_id", id_s},
                     {"error",  e.what()});
@@ -376,6 +476,7 @@ int run_worker(int /*argc*/, char** /*argv*/, const ProcessFn& process) {
 
     LOG_INFO("module.stop", {"module_kind", cfg.module_kind});
     PQfinish(conn);
+    if (exposer) exposer->stop();
     return 0;
 }
 

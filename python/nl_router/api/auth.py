@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from fastapi import Depends, Header, HTTPException, status
 from typing_extensions import Annotated
 
+from nl_router.api.metrics import AUTH_FAILURES_TOTAL
 from nl_router.db import pool
 
 
@@ -109,6 +110,7 @@ def _bearer_from_header(authorization: str | None) -> str:
     (the latter is convenient for curl one-liners and shell scripts).
     """
     if not authorization:
+        AUTH_FAILURES_TOTAL.labels(reason="missing_header").inc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="missing Authorization header",
@@ -119,6 +121,7 @@ def _bearer_from_header(authorization: str | None) -> str:
         return parts[1]
     if len(parts) == 1:
         return parts[0]
+    AUTH_FAILURES_TOTAL.labels(reason="malformed_header").inc()
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="malformed Authorization header",
@@ -195,6 +198,7 @@ async def auth_required(
     try:
         return validate_raw_token(raw)
     except InvalidToken as e:
+        AUTH_FAILURES_TOTAL.labels(reason="invalid_token").inc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
@@ -213,6 +217,7 @@ def require(*perms: str):
     async def _checker(ctx: AuthContext = Depends(auth_required)) -> AuthContext:
         missing = [p for p in perms if not ctx.has_perm(p)]
         if missing:
+            AUTH_FAILURES_TOTAL.labels(reason="permission_denied").inc()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"missing permission(s): {', '.join(missing)}",

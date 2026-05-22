@@ -47,6 +47,13 @@ struct Config {
     // 0 = refresh every poll iteration. NOTIFY-based invalidation lands later.
     std::uint32_t rule_cache_refresh_s {15};
 
+    // Prometheus /metrics HTTP exposer. Port 0 disables — useful for
+    // tests and when an operator deliberately doesn't want a metrics
+    // port open. 9181 is the design-plan default for the router;
+    // receiver=9180, dispatcher=9182, cleaner=9183, API=9184.
+    std::uint16_t metrics_port      {9181};
+    std::string   metrics_bind_addr {"0.0.0.0"};
+
     // Logging verbosity. "info" or "debug".
     std::string log_level {"info"};
 };
@@ -56,7 +63,8 @@ struct Config {
 // Required: NL_ROUTER_SERVER_ID, NL_ROUTER_DATABASE_URL (or DATABASE_URL).
 // Optional (defaults shown above): NL_ROUTER_POLL_INTERVAL_MS,
 //   NL_ROUTER_BATCH_SIZE, NL_ROUTER_LEASE_SECONDS,
-//   NL_ROUTER_RULE_CACHE_REFRESH_S, NL_ROUTER_LOG_LEVEL.
+//   NL_ROUTER_RULE_CACHE_REFRESH_S, NL_ROUTER_METRICS_PORT,
+//   NL_ROUTER_METRICS_BIND_ADDR, NL_ROUTER_LOG_LEVEL.
 //
 // Throws std::runtime_error on missing required values or invalid integers.
 Config load_config();

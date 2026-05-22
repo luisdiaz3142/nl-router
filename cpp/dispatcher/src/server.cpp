@@ -25,7 +25,8 @@ std::string short_hostname() {
 
 }  // namespace
 
-Server::Server(const Config& cfg) : cfg_(cfg) {
+Server::Server(const Config& cfg, const DispatcherMetrics& metrics)
+    : cfg_(cfg), metrics_(metrics) {
     meta_db_ = std::make_unique<Db>(cfg_.database_url);
     last_refresh_ = std::chrono::steady_clock::now() - std::chrono::hours(1);
 
@@ -71,7 +72,7 @@ void Server::refresh_destinations_() {
         auto it = workers_.find(d.id);
         if (it == workers_.end()) {
             const auto wid = make_worker_id_(d.id);
-            auto w = std::make_unique<Worker>(cfg_, d, wid, kek_);
+            auto w = std::make_unique<Worker>(cfg_, d, wid, kek_, metrics_);
             w->start();
             workers_[d.id] = std::move(w);
             LOG_INFO("dispatcher.worker_started",
@@ -96,6 +97,9 @@ void Server::refresh_destinations_() {
             ++it;
         }
     }
+
+    metrics_.destinations_active.self().set(
+        static_cast<std::int64_t>(workers_.size()));
 
     LOG_INFO("dispatcher.refresh_done",
         "destinations", std::to_string(latest.size()),

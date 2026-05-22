@@ -29,8 +29,8 @@ std::string make_worker_id() {
 
 }  // namespace
 
-Server::Server(const Config& cfg, Db& db)
-    : cfg_(cfg), db_(db), rule_cache_(db),
+Server::Server(const Config& cfg, Db& db, const RouterMetrics& metrics)
+    : cfg_(cfg), db_(db), metrics_(metrics), rule_cache_(db),
       last_rule_refresh_(std::chrono::steady_clock::now()),
       worker_id_(make_worker_id())
 {
@@ -46,7 +46,11 @@ int Server::run() {
     // Eager initial cache load so the first iteration has rules to evaluate.
     try {
         rule_cache_.refresh();
+        metrics_.rule_cache_refresh_total.labels({"success"}).inc();
+        metrics_.rule_cache_size.self().set(
+            static_cast<std::int64_t>(rule_cache_.size()));
     } catch (const std::exception& e) {
+        metrics_.rule_cache_refresh_total.labels({"error"}).inc();
         LOG_ERROR("router.initial_rule_load_failed", "error", e.what());
         return 2;
     }
@@ -61,8 +65,12 @@ int Server::run() {
         {
             try {
                 rule_cache_.refresh();
+                metrics_.rule_cache_refresh_total.labels({"success"}).inc();
+                metrics_.rule_cache_size.self().set(
+                    static_cast<std::int64_t>(rule_cache_.size()));
                 last_rule_refresh_ = now;
             } catch (const std::exception& e) {
+                metrics_.rule_cache_refresh_total.labels({"error"}).inc();
                 LOG_WARN("router.rule_refresh_failed", "error", e.what());
                 // Keep running with the stale cache rather than stop.
                 last_rule_refresh_ = now;
@@ -72,7 +80,11 @@ int Server::run() {
         std::size_t processed = 0;
         try {
             processed = evaluate_batch_();
+            metrics_.poll_iterations_total.labels({
+                processed > 0 ? "success" : "empty"
+            }).inc();
         } catch (const std::exception& e) {
+            metrics_.poll_iterations_total.labels({"error"}).inc();
             LOG_ERROR("router.batch_failed", "error", e.what());
             // Sleep to avoid a tight error loop if the DB is misbehaving.
             std::this_thread::sleep_for(std::chrono::milliseconds(cfg_.poll_interval_ms));
@@ -93,8 +105,13 @@ void Server::stop() noexcept {
 }
 
 std::size_t Server::evaluate_batch_() {
+    using clock = std::chrono::steady_clock;
+    const auto t0 = clock::now();
     auto rows = db_.claim_received_rows(cfg_.server_id, worker_id_,
                                          cfg_.lease_seconds, cfg_.batch_size);
+    const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(
+        clock::now() - t0).count();
+    metrics_.claim_duration_seconds.self().observe(dt);
     if (rows.empty()) return 0;
 
     LOG_DEBUG("router.batch_claimed",
@@ -144,6 +161,7 @@ void Server::evaluate_row_(const ClaimedRow& row) {
             // row — log it and skip the rule. The work_queue row still
             // advances to 'routed' so we don't get stuck in a retry loop
             // on an authoring mistake.
+            metrics_.predicate_eval_failures_total.self().inc();
             LOG_WARN("router.predicate_eval_failed",
                 "work_queue_id", std::to_string(row.id),
                 "rule_id",       std::to_string(cr.id),
@@ -153,10 +171,12 @@ void Server::evaluate_row_(const ClaimedRow& row) {
         }
         if (!matched) continue;
         ++matches;
+        metrics_.rule_matches_total.labels({cr.name}).inc();
 
         try {
             const int n = db_.insert_route_assignments(row.id, cr.id, cfg_.server_id);
             assignments_total += n;
+            metrics_.assignments_inserted_total.self().inc(n);
 
             // Per-rule processing chain. Each entry in
             // rule_processing_chain becomes one processing_jobs row,
@@ -165,6 +185,7 @@ void Server::evaluate_row_(const ClaimedRow& row) {
             const int p = db_.insert_processing_jobs(
                 row.id, cr.id, cfg_.server_id,
                 row.file_root_path, cfg_.processing_root);
+            metrics_.processing_jobs_inserted_total.self().inc(p);
 
             LOG_INFO("router.rule_matched",
                 "work_queue_id",  std::to_string(row.id),
@@ -175,6 +196,7 @@ void Server::evaluate_row_(const ClaimedRow& row) {
         } catch (const std::exception& e) {
             // DB insert failure here is recoverable for other rules, but we
             // should mark the row failed so the operator notices.
+            metrics_.insert_failures_total.self().inc();
             eval_error = true;
             error_msg  = std::string{"insert assignments/jobs: "} + e.what();
             LOG_ERROR("router.insert_failed",
@@ -193,6 +215,7 @@ void Server::evaluate_row_(const ClaimedRow& row) {
             // 'processing' (Processor takes it next) or 'routed'
             // (Dispatcher can act immediately).
             db_.finalize_routing(row.id);
+            metrics_.rows_routed_total.self().inc();
         }
     } catch (const std::exception& e) {
         // Worst case: claim columns stay set until the lease expires and a

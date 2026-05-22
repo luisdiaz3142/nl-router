@@ -17,13 +17,14 @@
 
 #include "config.hpp"
 #include "db.hpp"
+#include "metrics.hpp"
 #include "worker.hpp"
 
 namespace nlr {
 
 class Server {
 public:
-    explicit Server(const Config& cfg);
+    Server(const Config& cfg, const DispatcherMetrics& metrics);
 
     int run();
     void stop() noexcept;
@@ -34,6 +35,7 @@ private:
     std::string make_worker_id_(std::int64_t destination_id) const;
 
     Config cfg_;
+    const DispatcherMetrics& metrics_;
     std::unique_ptr<Db> meta_db_;            // used by the server thread for
                                               //  the destination-list query
     std::unordered_map<std::int64_t, std::unique_ptr<Worker>> workers_;

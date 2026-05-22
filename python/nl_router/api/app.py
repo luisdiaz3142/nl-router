@@ -17,6 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from nl_router import __version__
+from nl_router.api.metrics import (
+    DB_POOL_IN_USE,
+    DB_POOL_SIZE,
+    PrometheusMiddleware,
+    serve_metrics,
+)
 from nl_router.api.routes import (
     assignments,
     audit,
@@ -28,6 +34,7 @@ from nl_router.api.routes import (
     tokens,
     workqueue,
 )
+from nl_router.config import load as load_bootstrap
 from nl_router.db import pool
 from nl_router.ui import routes as ui_routes
 from nl_router.ui import routes_destinations as ui_routes_destinations
@@ -46,11 +53,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("api.startup")
     p = pool()                 # eager init so a misconfigured DSN fails fast
     log.info("api.db_pool_open", extra={"pool_size": p.get_stats().get("pool_size")})
+
+    # M17: start the Prometheus exposer on its own port. Wrapped so a
+    # misconfigured port doesn't gate the API process — see serve_metrics.
+    try:
+        cfg = load_bootstrap()
+        serve_metrics(port=cfg.metrics_port, addr="0.0.0.0")
+        _refresh_pool_gauges(p)
+    except Exception as e:                # pragma: no cover — startup-only
+        log.error("api.metrics_setup_failed", extra={"error": str(e)})
+
     try:
         yield
     finally:
         log.info("api.shutdown")
         p.close()
+
+
+def _refresh_pool_gauges(p) -> None:                          # type: ignore[no-untyped-def]
+    """Seed the pool gauges with a one-shot read at startup.
+
+    We avoid a poller thread for now — operators can scrape on a tight
+    interval (e.g. 15s) and the gauges get refreshed by the next-request
+    side-effect in the middleware. If pool pressure becomes a real
+    concern this turns into a daemon thread.
+    """
+    try:
+        stats = p.get_stats()
+        DB_POOL_SIZE.set(stats.get("pool_size", 0))
+        DB_POOL_IN_USE.set(stats.get("pool_size", 0) - stats.get("pool_available", 0))
+    except Exception:
+        # psycopg pool stats schema differs across versions; don't bring
+        # the API down because the gauge labels drifted.
+        pass
 
 
 def create_app() -> FastAPI:
@@ -72,6 +107,11 @@ def create_app() -> FastAPI:
         docs_url="/api/v1/docs",
         redoc_url="/api/v1/redoc",
     )
+
+    # M17: time + count every HTTP request. The /metrics endpoint itself
+    # runs on a separate port (see lifespan → serve_metrics) so scrapes
+    # don't show up in this counter.
+    app.add_middleware(PrometheusMiddleware)
 
     # API routes
     app.include_router(health.router)                              # /healthz, /readyz

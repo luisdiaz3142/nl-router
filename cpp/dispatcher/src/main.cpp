@@ -12,7 +12,11 @@
 
 #include "config.hpp"
 #include "logging.hpp"
+#include "metrics.hpp"
 #include "server.hpp"
+
+#include "nl_router/metrics/exposer.hpp"
+#include "nl_router/metrics/registry.hpp"
 
 namespace {
 
@@ -36,15 +40,25 @@ int main(int /*argc*/, char** /*argv*/) {
         const auto cfg = nlr::load_config();
         nlr::log::set_level(nlr::log::parse_level(cfg.log_level));
 
-        LOG_INFO("startup", "server_id", cfg.server_id, "log_level", cfg.log_level);
+        LOG_INFO("startup",
+            "server_id",    cfg.server_id,
+            "metrics_port", std::to_string(cfg.metrics_port),
+            "metrics_bind", cfg.metrics_bind_addr,
+            "log_level",    cfg.log_level);
 
-        nlr::Server server(cfg);
+        auto& registry = nlr::metrics::Registry::global();
+        nlr::DispatcherMetrics metrics = nlr::DispatcherMetrics::register_all(registry);
+        nlr::metrics::Exposer exposer(registry, cfg.metrics_port, cfg.metrics_bind_addr);
+        exposer.start();
+
+        nlr::Server server(cfg, metrics);
         g_server.store(&server);
         install_signal_handlers();
 
         const int rc = server.run();
         g_server.store(nullptr);
 
+        exposer.stop();
         LOG_INFO("shutdown.complete", "exit_code", std::to_string(rc));
         return rc;
     } catch (const std::exception& e) {

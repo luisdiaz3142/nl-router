@@ -11,13 +11,14 @@
 
 #include "config.hpp"
 #include "db.hpp"
+#include "metrics.hpp"
 #include "rule_cache.hpp"
 
 namespace nlr {
 
 class Server {
 public:
-    Server(const Config& cfg, Db& db);
+    Server(const Config& cfg, Db& db, const RouterMetrics& metrics);
 
     // Run the poll loop until stop() is called. Returns 0 on graceful
     // shutdown, non-zero on fatal error.
@@ -35,9 +36,10 @@ private:
     // for matches, and mark the row routed or failed.
     void evaluate_row_(const ClaimedRow& row);
 
-    const Config& cfg_;
-    Db&           db_;
-    RuleCache     rule_cache_;
+    const Config&        cfg_;
+    Db&                  db_;
+    const RouterMetrics& metrics_;
+    RuleCache            rule_cache_;
     std::atomic<bool> stop_requested_ {false};
 
     std::chrono::steady_clock::time_point last_rule_refresh_;

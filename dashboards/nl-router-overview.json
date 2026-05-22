@@ -1,0 +1,552 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "End-to-end view of an nl-router deployment: receiver → router → dispatcher → cleaner, plus module-worker queues and the management API. Variables ($server_id, $datasource) filter to one node / one Prometheus source.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Receiver",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100
+    },
+    {
+      "type": "timeseries",
+      "title": "Associations — accept vs reject (rate/s)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "id": 101,
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(nl_receiver_associations_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "type": "stat",
+      "title": "Active associations",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 102,
+      "targets": [
+        {
+          "expr": "sum(nl_receiver_associations_active{server_id=~\"$server_id\"})",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Workers busy / total",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 103,
+      "targets": [
+        {
+          "expr": "sum(nl_receiver_workers_busy{server_id=~\"$server_id\"})",
+          "legendFormat": "busy",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(nl_receiver_workers_total{server_id=~\"$server_id\"})",
+          "legendFormat": "total",
+          "refId": "B"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Landing zone usage",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "id": 104,
+      "targets": [
+        {
+          "expr": "sum(nl_receiver_landing_disk_used_bytes{server_id=~\"$server_id\"})",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(nl_receiver_landing_disk_free_bytes{server_id=~\"$server_id\"})",
+          "legendFormat": "free",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Studies closed by trigger",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+      "id": 105,
+      "targets": [
+        {
+          "expr": "sum by (trigger) (rate(nl_receiver_studies_closed_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{trigger}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Instances received / s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+      "id": 106,
+      "targets": [
+        {
+          "expr": "sum by (modality) (rate(nl_receiver_instances_received_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{modality}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Association duration p50/p95/p99",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+      "id": 107,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nl_receiver_association_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nl_receiver_association_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nl_receiver_association_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "row",
+      "title": "Router",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "id": 200
+    },
+    {
+      "type": "timeseries",
+      "title": "Poll iterations by outcome",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 18 },
+      "id": 201,
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(nl_router_poll_iterations_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows routed / s + assignments / s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 18 },
+      "id": 202,
+      "targets": [
+        {
+          "expr": "sum(rate(nl_router_rows_routed_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "rows_routed",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(nl_router_assignments_inserted_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "assignments",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(nl_router_processing_jobs_inserted_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "processing_jobs",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Claim duration p95",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 18 },
+      "id": 203,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nl_router_claim_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "stat",
+      "title": "Rule cache size",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 26 },
+      "id": 204,
+      "targets": [
+        {
+          "expr": "max(nl_router_rule_cache_size{server_id=~\"$server_id\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Predicate eval + insert failures",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 10, "x": 4, "y": 26 },
+      "id": 205,
+      "targets": [
+        {
+          "expr": "sum(rate(nl_router_predicate_eval_failures_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "predicate_eval",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(nl_router_insert_failures_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "insert",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(nl_router_rule_cache_parse_errors_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "rule_parse",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rule matches by name (top 10)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 26 },
+      "id": 206,
+      "targets": [
+        {
+          "expr": "topk(10, sum by (rule_name) (rate(nl_router_rule_matches_total{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "{{rule_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "row",
+      "title": "Dispatcher",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 300
+    },
+    {
+      "type": "timeseries",
+      "title": "Assignments by kind / result",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+      "id": 301,
+      "targets": [
+        {
+          "expr": "sum by (kind, result) (rate(nl_dispatcher_assignments_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}} / {{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Dispatch duration p95 by kind",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 35 },
+      "id": 302,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (kind, le) (rate(nl_dispatcher_dispatch_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "stat",
+      "title": "Destinations active",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 35 },
+      "id": 303,
+      "targets": [
+        {
+          "expr": "max(nl_dispatcher_destinations_active{server_id=~\"$server_id\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker busy per destination",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 43 },
+      "id": 304,
+      "targets": [
+        {
+          "expr": "sum by (destination_id) (nl_dispatcher_worker_busy{server_id=~\"$server_id\"})",
+          "legendFormat": "dest {{destination_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Credential fetch failures (rate)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 43 },
+      "id": 305,
+      "targets": [
+        {
+          "expr": "sum(rate(nl_dispatcher_credential_fetch_failures_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "row",
+      "title": "Cleaner",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 },
+      "id": 400
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows cleaned by status (rate/s)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 52 },
+      "id": 401,
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(nl_cleaner_rows_cleaned_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes freed / s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 52 },
+      "id": 402,
+      "targets": [
+        {
+          "expr": "sum(rate(nl_cleaner_bytes_freed_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "bytes/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+    {
+      "type": "stat",
+      "title": "Prune leader",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 52 },
+      "id": 403,
+      "targets": [
+        {
+          "expr": "max(nl_cleaner_leader{server_id=~\"$server_id\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "follower" }, "1": { "text": "leader" } } }
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Rows pruned / s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 52 },
+      "id": 404,
+      "targets": [
+        {
+          "expr": "sum(rate(nl_cleaner_rows_pruned_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "row",
+      "title": "Module workers",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "id": 500
+    },
+    {
+      "type": "timeseries",
+      "title": "Module jobs by result (rate/s)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "id": 501,
+      "targets": [
+        {
+          "expr": "sum by (job, result) (rate(nl_module_jobs_total{server_id=~\"$server_id\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} / {{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Module job duration p95",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "id": 502,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(nl_module_job_duration_seconds_bucket{server_id=~\"$server_id\"}[$__rate_interval])))",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "row",
+      "title": "Management API",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 69 },
+      "id": 600
+    },
+    {
+      "type": "timeseries",
+      "title": "API requests by status",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 70 },
+      "id": 601,
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(nl_api_requests_total[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "API duration p50 / p95",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 70 },
+      "id": 602,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nl_api_request_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nl_api_request_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Auth failures by reason",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 70 },
+      "id": 603,
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(nl_api_auth_failures_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["nl-router", "dicom"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "refresh": 1
+      },
+      {
+        "name": "server_id",
+        "label": "Server",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "$datasource" },
+        "query": "label_values(nl_receiver_associations_total, server_id)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "nl-router — overview",
+  "uid": "nl-router-overview",
+  "version": 1,
+  "weekStart": ""
+}

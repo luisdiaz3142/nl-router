@@ -35,6 +35,10 @@ struct Config {
     // disabled destinations have their workers stopped).
     std::uint32_t destination_refresh_s {30};
 
+    // Prometheus /metrics HTTP exposer. Port 0 disables.
+    std::uint16_t metrics_port      {9182};
+    std::string   metrics_bind_addr {"0.0.0.0"};
+
     // Logging verbosity.
     std::string log_level {"info"};
 };

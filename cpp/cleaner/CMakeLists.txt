@@ -31,6 +31,7 @@ add_executable(nl-clean
     src/disk.cpp
     src/db.cpp
     src/server.cpp
+    src/metrics.cpp
 )
 
 target_include_directories(nl-clean PRIVATE
@@ -39,6 +40,7 @@ target_include_directories(nl-clean PRIVATE
 )
 
 target_link_libraries(nl-clean PRIVATE
+    nl_router_metrics
     ${PostgreSQL_LIBRARIES}
 )
 

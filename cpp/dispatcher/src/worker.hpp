@@ -21,13 +21,14 @@
 #include "config.hpp"
 #include "db.hpp"
 #include "handler.hpp"
+#include "metrics.hpp"
 
 namespace nlr {
 
 class Worker {
 public:
     Worker(const Config& cfg, Destination destination, const std::string& worker_id,
-           std::vector<std::uint8_t> kek);
+           std::vector<std::uint8_t> kek, const DispatcherMetrics& metrics);
     ~Worker();
 
     Worker(const Worker&)            = delete;
@@ -60,6 +61,7 @@ private:
     std::unique_ptr<DispatchHandler> handler_;
     std::string    worker_id_;
     std::vector<std::uint8_t> kek_;         // shared with other workers; immutable post-startup
+    const DispatcherMetrics& metrics_;
     std::atomic<bool> stop_requested_ {false};
     std::thread    thread_;
 };

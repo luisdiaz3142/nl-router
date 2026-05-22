@@ -19,7 +19,11 @@
 #include "config.hpp"
 #include "db.hpp"
 #include "logging.hpp"
+#include "metrics.hpp"
 #include "server.hpp"
+
+#include "nl_router/metrics/exposer.hpp"
+#include "nl_router/metrics/registry.hpp"
 
 namespace {
 
@@ -45,10 +49,21 @@ int main(int /*argc*/, char** /*argv*/) {
 
         LOG_INFO("startup",
             "server_id",    cfg.server_id,
+            "metrics_port", std::to_string(cfg.metrics_port),
+            "metrics_bind", cfg.metrics_bind_addr,
             "log_level",    cfg.log_level);
 
+        // Metrics registry + /metrics exposer. Registered before the DB
+        // connects so the exposer port comes up regardless of DSN
+        // state — operators can scrape "is the daemon alive" before
+        // routing's actually happening.
+        auto& registry = nlr::metrics::Registry::global();
+        nlr::RouterMetrics metrics = nlr::RouterMetrics::register_all(registry);
+        nlr::metrics::Exposer exposer(registry, cfg.metrics_port, cfg.metrics_bind_addr);
+        exposer.start();
+
         nlr::Db db(cfg.database_url);
-        nlr::Server server(cfg, db);
+        nlr::Server server(cfg, db, metrics);
 
         g_server.store(&server);
         install_signal_handlers();
@@ -56,6 +71,7 @@ int main(int /*argc*/, char** /*argv*/) {
         const int rc = server.run();
         g_server.store(nullptr);
 
+        exposer.stop();
         LOG_INFO("shutdown.complete", "exit_code", std::to_string(rc));
         return rc;
     } catch (const std::exception& e) {

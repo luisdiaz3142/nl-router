@@ -13,6 +13,7 @@ from typing import Any
 from psycopg import Connection
 
 from nl_router.api.auth import AuthContext
+from nl_router.api.metrics import AUDIT_EVENTS_TOTAL
 
 
 def emit_audit(
@@ -49,3 +50,9 @@ def emit_audit(
                 user_agent,
             ),
         )
+    # Bump after the INSERT so a SQL failure (which would already raise)
+    # doesn't inflate the counter. If the caller's transaction later
+    # rolls back, we have a slight over-count — acceptable for an
+    # observability counter; the alternative (after-commit hooks) buys
+    # nothing operationally.
+    AUDIT_EVENTS_TOTAL.labels(action=action).inc()
