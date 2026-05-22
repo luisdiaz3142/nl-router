@@ -44,6 +44,12 @@ api = [
     # native daemons' /metrics surface; uses a dedicated port (9184 by
     # default) served by prometheus_client.start_http_server().
     "prometheus-client>=0.20",
+    # M19: destination test-connection probes. httpx covers the
+    # http/dicomweb/gcp probe paths; boto3 covers object_storage. Both
+    # are imported by nl_router.api.probes — httpx at module top
+    # (loads at API startup), boto3 lazily inside the probe function.
+    "httpx>=0.27",
+    "boto3>=1.34",
 ]
 dev = [
     "pytest>=8.0",
