@@ -1,57 +1,81 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "destinations" %}
 {% block title %}Destinations — nl-router{% endblock %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">Destinations</h1>
-    <span style="flex: 1;"></span>
-    <a href="/ui/destinations/new" role="button">+ New destination</a>
-</header>
+<div class="page-header">
+    <div>
+        <h1>Destinations</h1>
+        <div class="subtitle">Where matched studies get sent.</div>
+    </div>
+    <div class="actions">
+        <a href="/ui/destinations/new" class="btn btn-primary">
+            {{ icon("plus", 16) }} New destination
+        </a>
+    </div>
+</div>
 
-<p class="muted">
-    Where matched studies get sent. Each destination has a kind-specific
-    config and an optional credential. Bind a destination to one or more
-    rules to start receiving traffic.
+<p class="page-intro">
+    Each destination has a kind-specific config and an optional credential.
+    Bind a destination to one or more rules to start receiving traffic.
 </p>
 
 {% if destinations %}
-<table class="dense">
-    <thead><tr>
-        <th>Name</th><th>Kind</th><th>Enabled</th><th>Concurrency</th>
-        <th>Credential</th><th>Rules</th><th></th>
-    </tr></thead>
-    <tbody>
-        {% for d in destinations %}
-        <tr>
-            <td>
-                <a href="/ui/destinations/{{ d.id }}"><strong>{{ d.name }}</strong></a>
-                {% if d.description %}<br><small class="muted">{{ d.description }}</small>{% endif %}
-            </td>
-            <td><code>{{ d.kind }}</code></td>
-            <td>
-                {% if d.enabled %}
-                    <span class="pill pill-ok">enabled</span>
-                {% else %}
-                    <span class="pill pill-muted">disabled</span>
-                {% endif %}
-            </td>
-            <td style="text-align:right">{{ d.dispatch_concurrency }}</td>
-            <td>{{ d.credential_name or "—" }}</td>
-            <td style="text-align:right">{{ d.rule_count }}</td>
-            <td><a href="/ui/destinations/{{ d.id }}">edit</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th class="shrink">Kind</th>
+                <th class="shrink">Enabled</th>
+                <th class="num shrink">Concurrency</th>
+                <th class="shrink">Credential</th>
+                <th class="num shrink">Rules</th>
+                <th class="shrink"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in destinations %}
+            <tr>
+                <td>
+                    <a href="/ui/destinations/{{ d.id }}"><strong>{{ d.name }}</strong></a>
+                    {% if d.description %}
+                        <div class="muted">{{ d.description }}</div>
+                    {% endif %}
+                </td>
+                <td><code>{{ d.kind }}</code></td>
+                <td>
+                    {% if d.enabled %}
+                        <span class="badge badge-ok">enabled</span>
+                    {% else %}
+                        <span class="badge badge-muted">disabled</span>
+                    {% endif %}
+                </td>
+                <td class="num">{{ d.dispatch_concurrency }}</td>
+                <td>
+                    {% if d.credential_name %}<code>{{ d.credential_name }}</code>
+                    {% else %}<span class="muted">—</span>{% endif %}
+                </td>
+                <td class="num">{{ d.rule_count }}</td>
+                <td>
+                    <a href="/ui/destinations/{{ d.id }}" class="btn btn-ghost btn-sm">
+                        {{ icon("edit", 14) }} Edit
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<article>
-    <header><strong>No destinations yet</strong></header>
-    <p>
-        Add a destination before creating rules — there has to be
-        somewhere for matched studies to go.
-    </p>
-    <p><a href="/ui/destinations/new" role="button">Create a destination</a></p>
-</article>
+<div class="empty-state">
+    <h3>No destinations yet</h3>
+    <p>Add a destination before creating rules — there has to be
+       somewhere for matched studies to go.</p>
+    <a href="/ui/destinations/new" class="btn btn-primary">
+        {{ icon("plus", 16) }} Create a destination
+    </a>
+</div>
 {% endif %}
 {% endblock %}

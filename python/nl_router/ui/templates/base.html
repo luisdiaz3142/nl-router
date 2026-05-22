@@ -1,119 +1,115 @@
 <!DOCTYPE html>
-{# Base layout shared by every UI page. Pico.css is loaded from a
-   CDN so we don't ship a build pipeline; the HTML is mostly
-   class-less and styled by Pico's element-default selectors. A
-   small inline <style> block overrides what we need (nav layout,
-   table density, status pills). #}
-<html lang="en" data-theme="auto">
+{# Base layout for every logged-in UI page.
+
+   The app shell is a dark sidebar carrying the New Lantern brand
+   chrome + a light content area, optimized for long operator
+   sessions on dense data tables.
+
+   The login page extends `base_unauth.html` instead — that's the
+   centered single-card layout.
+
+   Pages can override:
+     - `title`    : page <title>
+     - `content`  : main content block
+     - `scripts`  : per-page <script> tags
+
+   Variables expected from `common.render`:
+     - auth                          : AuthContext
+     - active                        : str — current nav section
+     - flash_msg / flash_kind        : optional one-shot banner
+     - server_id, nlrouter_version   : sidebar footer fact pair
+#}
+{% from "_icons.html" import lantern_logo, icon %}
+<html lang="en" data-theme="light">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}nl-router{% endblock %}</title>
 
-    {# Pico v2 — classless CSS framework. ~12 KB. #}
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    {# Favicon — inline lantern SVG. Data URI keeps it bundled without a
+       route. URL-encoded so the # in hex colors doesn't terminate the URI. #}
+    <link rel="icon" type="image/svg+xml"
+          href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><radialGradient id='g' cx='50%25' cy='55%25' r='45%25'><stop offset='0%25' stop-color='%233EECD5'/><stop offset='100%25' stop-color='%230099FF'/></radialGradient></defs><path fill='none' stroke='%230099FF' stroke-width='1.5' stroke-linecap='round' d='M10 3h4M12 3v2'/><rect x='6' y='5' width='12' height='15' rx='2' fill='none' stroke='%230099FF' stroke-width='1.5'/><circle cx='12' cy='12.5' r='3.2' fill='url(%23g)'/><path d='M6.5 20h11' stroke='%230099FF' stroke-width='1.5' stroke-linecap='round'/></svg>">
+
+    <link rel="stylesheet" href="/ui/static/css/app.css">
 
     {# HTMX — drives every form submit + table refresh without a JS framework. #}
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"
             integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
             crossorigin="anonymous"></script>
-
-    <style>
-        /* Top nav: horizontal, spans full width. */
-        header.app-nav {
-            border-bottom: 1px solid var(--pico-muted-border-color);
-            margin-bottom: 1.5rem;
-        }
-        header.app-nav nav { display: flex; align-items: center; gap: 1rem; }
-        header.app-nav nav .brand { font-weight: 700; }
-        header.app-nav nav .spacer { flex: 1; }
-        header.app-nav nav a { padding: 0.25rem 0.5rem; border-radius: 4px; }
-        header.app-nav nav a.active {
-            background: var(--pico-primary-background);
-            color: var(--pico-primary-inverse);
-        }
-
-        /* Tables: denser by default — operator screens are dense.
-           Pico's default cell padding is comfortable for content
-           pages but wasteful in admin lists. */
-        table.dense { font-size: 0.9rem; }
-        table.dense th, table.dense td { padding: 0.4rem 0.6rem; }
-        table.dense tbody tr:hover { background: var(--pico-secondary-background); }
-
-        /* Status pills — used for work_queue.status, route_assignments.status, etc. */
-        .pill {
-            display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
-            font-size: 0.8rem; font-weight: 500;
-        }
-        .pill-ok    { background: #d4edda; color: #155724; }
-        .pill-warn  { background: #fff3cd; color: #856404; }
-        .pill-err   { background: #f8d7da; color: #721c24; }
-        .pill-info  { background: #d1ecf1; color: #0c5460; }
-        .pill-muted { background: var(--pico-secondary-background); color: var(--pico-muted-color); }
-
-        /* Flash messages — set by the route via a flash() helper that
-           writes into a one-shot cookie. */
-        .flash {
-            padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem;
-            border-left: 4px solid;
-        }
-        .flash-ok    { background: #d4edda; border-color: #28a745; color: #155724; }
-        .flash-err   { background: #f8d7da; border-color: #dc3545; color: #721c24; }
-
-        /* Form errors surfaced inline next to a field. */
-        .field-error { color: #dc3545; font-size: 0.85rem; margin-top: -0.5rem; }
-
-        /* Make <pre> blocks (predicate previews, JSON config) wrap. */
-        pre { white-space: pre-wrap; word-break: break-all; }
-
-        /* Reduce the giant default container padding on small screens. */
-        @media (max-width: 768px) {
-            body > main { padding: 1rem; }
-        }
-    </style>
 </head>
 <body>
-    {% if auth %}
-        {# Logged in — render the nav. The login page itself omits this. #}
-        <header class="app-nav">
-            <nav>
-                <a href="/ui" class="brand">nl-router</a>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a href="/ui" class="sidebar-brand" style="color: var(--color-brand);">
+                {{ lantern_logo(24) }}
+                <span style="color: #fff;">nl-router</span>
+            </a>
+            <nav class="sidebar-nav" aria-label="Primary">
                 <a href="/ui"
-                   {% if active == "dashboard" %}class="active"{% endif %}>Dashboard</a>
+                   class="sidebar-link {% if active == 'dashboard' %}active{% endif %}">
+                    {{ icon("dashboard") }} Dashboard
+                </a>
                 <a href="/ui/rules"
-                   {% if active == "rules" %}class="active"{% endif %}>Rules</a>
+                   class="sidebar-link {% if active == 'rules' %}active{% endif %}">
+                    {{ icon("rules") }} Rules
+                </a>
                 <a href="/ui/destinations"
-                   {% if active == "destinations" %}class="active"{% endif %}>Destinations</a>
+                   class="sidebar-link {% if active == 'destinations' %}active{% endif %}">
+                    {{ icon("destinations") }} Destinations
+                </a>
                 <a href="/ui/processing-modules"
-                   {% if active == "modules" %}class="active"{% endif %}>Modules</a>
+                   class="sidebar-link {% if active == 'modules' %}active{% endif %}">
+                    {{ icon("modules") }} Modules
+                </a>
                 <a href="/ui/credentials"
-                   {% if active == "credentials" %}class="active"{% endif %}>Credentials</a>
+                   class="sidebar-link {% if active == 'credentials' %}active{% endif %}">
+                    {{ icon("credentials") }} Credentials
+                </a>
                 <a href="/ui/studies"
-                   {% if active == "studies" %}class="active"{% endif %}>Studies</a>
+                   class="sidebar-link {% if active == 'studies' %}active{% endif %}">
+                    {{ icon("studies") }} Studies
+                </a>
                 <a href="/ui/holds"
-                   {% if active == "holds" %}class="active"{% endif %}>Holds</a>
+                   class="sidebar-link {% if active == 'holds' %}active{% endif %}">
+                    {{ icon("holds") }} Holds
+                </a>
                 <a href="/ui/audit"
-                   {% if active == "audit" %}class="active"{% endif %}>Audit</a>
-                <span class="spacer"></span>
-                <small>
-                    {{ auth.token_name }}
-                    <a href="/ui/logout" hx-disable>logout</a>
-                </small>
+                   class="sidebar-link {% if active == 'audit' %}active{% endif %}">
+                    {{ icon("audit") }} Audit
+                </a>
+                <a href="/ui/config"
+                   class="sidebar-link {% if active == 'config' %}active{% endif %}">
+                    {{ icon("config") }} System config
+                </a>
             </nav>
-        </header>
-    {% endif %}
+            <div class="sidebar-footer">
+                {% if auth %}
+                    <div style="color: var(--color-chrome-text); font-weight: 600;">
+                        {{ auth.token_name }}
+                    </div>
+                {% endif %}
+                <div style="margin: 4px 0;">
+                    <code style="background: transparent; border: none; color: var(--color-chrome-muted); padding: 0;">{{ server_id }}</code>
+                </div>
+                <a href="/ui/logout" hx-disable
+                   style="display: inline-flex; align-items: center; gap: 6px;">
+                    {{ icon("logout", 14) }} Sign out
+                </a>
+                <div style="margin-top: var(--sp-3); color: var(--color-chrome-muted); font-size: 0.7rem;">
+                    v{{ nlrouter_version }}
+                </div>
+            </div>
+        </aside>
 
-    <main class="container">
-        {# Flash message (one-shot cookie set by the route). #}
-        {% if flash_msg %}
-            <div class="flash flash-{{ flash_kind or 'ok' }}">{{ flash_msg }}</div>
-        {% endif %}
+        <main class="app-main">
+            {% if flash_msg %}
+                <div class="flash flash-{{ flash_kind or 'ok' }}">{{ flash_msg }}</div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </main>
+    </div>
 
-        {% block content %}{% endblock %}
-    </main>
-
-    {# Page-specific scripts go here. #}
     {% block scripts %}{% endblock %}
 </body>
 </html>

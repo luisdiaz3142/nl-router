@@ -3,86 +3,110 @@
 {% block title %}Audit log — nl-router{% endblock %}
 
 {% block content %}
-<header>
-    <h1 style="margin: 0;">Audit log</h1>
-</header>
+<div class="page-header">
+    <div>
+        <h1>Audit log</h1>
+        <div class="subtitle">
+            Every state-changing API or UI action.
+        </div>
+    </div>
+</div>
 
-<p class="muted">
-    Every state-changing API or UI action lands here. Credential payloads
-    are never recorded in the diff — only structural facts.
+<p class="page-intro">
+    Credential payloads are never recorded in the diff — only structural
+    facts (kind changed, rotated, created).
 </p>
 
-<form method="get" action="/ui/audit">
-    <div class="grid">
-        <label>Actor
-            <input type="text" name="actor"
-                   placeholder="token:1 / user:42"
-                   value="{{ active_filters.actor or '' }}">
-        </label>
-        <label>Action
-            <input type="text" name="action"
-                   placeholder="rule.create / destination.update / ..."
-                   value="{{ active_filters.action or '' }}">
-        </label>
-        <label>Resource kind
-            <select name="resource_kind">
-                <option value="">— any —</option>
-                {% for rk in ["rule", "destination", "credential", "system_config", "work_queue", "token"] %}
-                    <option value="{{ rk }}"
-                            {% if active_filters.resource_kind == rk %}selected{% endif %}>{{ rk }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>Limit
-            <input type="number" name="limit" min="1" max="500"
-                   value="{{ active_filters.limit or 100 }}">
-        </label>
-    </div>
-    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-        <button type="submit">Apply</button>
-        <a href="/ui/audit" role="button" class="secondary">Clear</a>
-    </div>
-</form>
+<div class="card">
+    <form method="get" action="/ui/audit">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="f-actor">Actor</label>
+                <input type="text" name="actor" id="f-actor"
+                       placeholder="token:1 / user:42"
+                       value="{{ active_filters.actor or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="f-action">Action</label>
+                <input type="text" name="action" id="f-action"
+                       placeholder="rule.create / destination.update / ..."
+                       value="{{ active_filters.action or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="f-resource">Resource kind</label>
+                <select name="resource_kind" id="f-resource">
+                    <option value="">— any —</option>
+                    {% for rk in ["rule", "destination", "credential", "system_config", "work_queue", "token"] %}
+                        <option value="{{ rk }}"
+                                {% if active_filters.resource_kind == rk %}selected{% endif %}>{{ rk }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="f-limit">Limit</label>
+                <input type="number" name="limit" id="f-limit" min="1" max="500"
+                       value="{{ active_filters.limit or 100 }}">
+            </div>
+        </div>
+        <div class="row" style="margin-top: var(--sp-2);">
+            <button type="submit" class="btn btn-primary">Apply</button>
+            <a href="/ui/audit" class="btn btn-ghost">Clear</a>
+        </div>
+    </form>
+</div>
 
 {% if rows %}
-<table class="dense" style="margin-top: 1rem;">
-    <thead><tr>
-        <th>When</th><th>Actor</th><th>Action</th>
-        <th>Resource</th><th>Diff</th>
-    </tr></thead>
-    <tbody>
-        {% for r in rows %}
-        <tr>
-            <td><small>{{ r.occurred_at }}</small></td>
-            <td><small><code>{{ r.actor }}</code><br>
-                       <span class="muted">{{ r.actor_kind }}</span></small></td>
-            <td><code>{{ r.action }}</code></td>
-            <td>
-                {% if r.resource_kind == "rule" %}
-                    <a href="/ui/rules/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
-                {% elif r.resource_kind == "destination" %}
-                    <a href="/ui/destinations/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
-                {% elif r.resource_kind == "work_queue" %}
-                    <a href="/ui/studies/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
-                {% else %}
-                    <code>{{ r.resource_kind }}/{{ r.resource_id }}</code>
-                {% endif %}
-            </td>
-            <td>
-                {% if r.diff_pretty %}
-                <details>
-                    <summary>diff</summary>
-                    <pre style="margin-top: 0.5rem; font-size: 0.8rem;">{{ r.diff_pretty }}</pre>
-                </details>
-                {% else %}
-                    <small class="muted">—</small>
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th class="shrink">When</th>
+                <th class="shrink">Actor</th>
+                <th class="shrink">Action</th>
+                <th class="shrink">Resource</th>
+                <th>Diff</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td><small>{{ r.occurred_at }}</small></td>
+                <td>
+                    <small><code>{{ r.actor }}</code></small><br>
+                    <small class="muted">{{ r.actor_kind }}</small>
+                </td>
+                <td><code>{{ r.action }}</code></td>
+                <td>
+                    {% if r.resource_kind == "rule" %}
+                        <a href="/ui/rules/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
+                    {% elif r.resource_kind == "destination" %}
+                        <a href="/ui/destinations/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
+                    {% elif r.resource_kind == "work_queue" %}
+                        <a href="/ui/studies/{{ r.resource_id }}"><code>{{ r.resource_kind }}/{{ r.resource_id }}</code></a>
+                    {% else %}
+                        <code>{{ r.resource_kind }}/{{ r.resource_id }}</code>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.diff_pretty %}
+                        <details>
+                            <summary>diff</summary>
+                            <pre style="margin-top: var(--sp-2); font-size: 0.8rem;">{{ r.diff_pretty }}</pre>
+                        </details>
+                    {% else %}
+                        <small class="muted">—</small>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<p><em>No audit rows match the current filters.</em></p>
+<div class="empty-state">
+    <h3>No matching audit rows</h3>
+    <p>Loosen the filters or perform an audited action (create a rule,
+       update a destination) to see entries appear here.</p>
+</div>
 {% endif %}
 {% endblock %}

@@ -3,61 +3,87 @@
 {% block title %}Dashboard — nl-router{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
-<p class="muted">Live operational view of this nl-router node.</p>
+<div class="page-header">
+    <div>
+        <h1>Dashboard</h1>
+        <div class="subtitle">Live operational view of this nl-router node.</div>
+    </div>
+</div>
 
-<section>
-    <h3>Work queue by status</h3>
-    {% if status_counts %}
-        <table class="dense">
-            <thead><tr><th>Status</th><th style="text-align:right">Rows</th></tr></thead>
-            <tbody>
-                {% for s in status_counts %}
-                <tr>
-                    <td><span class="pill pill-{{ s.pill }}">{{ s.status }}</span></td>
-                    <td style="text-align:right">{{ s.count }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p><em>No rows yet. Send a DICOM to the receiver to see them appear here.</em></p>
-    {% endif %}
-</section>
+{# ---- Top stat cards: work-queue counts as glanceable tiles. -------- #}
+{% if status_counts %}
+    <div class="card-grid">
+        {% for s in status_counts %}
+            <div class="stat-card {% if loop.first %}accent{% endif %}">
+                <div class="stat-label">{{ s.status }}</div>
+                <div class="stat-value">{{ "{:,}".format(s.count) }}</div>
+                <div class="stat-sub">
+                    <span class="badge badge-{{ s.pill }}">{{ s.status }}</span>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No traffic yet</h3>
+        <p>Send a DICOM study to the receiver and rows will appear here as they
+           progress through routing → processing → dispatch.</p>
+        <a href="/ui/rules" class="btn btn-primary">Set up routing rules</a>
+    </div>
+{% endif %}
 
-<section style="margin-top: 2rem;">
-    <h3>Recent associations</h3>
+{# ---- Recent associations table ------------------------------------- #}
+<div class="card">
+    <div class="row" style="margin-bottom: var(--sp-4);">
+        <h3 class="card-title" style="margin: 0;">Recent associations</h3>
+        <span class="muted">last 20</span>
+        <span class="spacer"></span>
+        <a href="/ui/studies" class="btn btn-ghost btn-sm">View all studies</a>
+    </div>
+
     {% if recent_rows %}
-        <table class="dense">
-            <thead><tr>
-                <th>Received</th><th>Calling AET</th><th>Modality</th>
-                <th>Study UID</th><th>Status</th>
-            </tr></thead>
-            <tbody>
-                {% for r in recent_rows %}
-                <tr>
-                    <td>{{ r.received_at }}</td>
-                    <td><code>{{ r.calling_aet }}</code></td>
-                    <td>{{ r.modality or "—" }}</td>
-                    <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.study_instance_uid[-20:] }}</code></a></td>
-                    <td><span class="pill pill-{{ r.pill }}">{{ r.status }}</span></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th>Received</th>
+                        <th>Calling AET</th>
+                        <th>Modality</th>
+                        <th>Study UID</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recent_rows %}
+                    <tr>
+                        <td class="shrink"><small>{{ r.received_at }}</small></td>
+                        <td><code>{{ r.calling_aet }}</code></td>
+                        <td>{{ r.modality or "—" }}</td>
+                        <td>
+                            <a href="/ui/studies/{{ r.id }}">
+                                <code>{{ r.study_instance_uid[-24:] }}</code>
+                            </a>
+                        </td>
+                        <td class="shrink">
+                            <span class="badge badge-{{ r.pill }}">{{ r.status }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
-        <p><em>No traffic yet.</em></p>
+        <p class="muted" style="margin: 0;"><em>No associations yet.</em></p>
     {% endif %}
-</section>
+</div>
 
-<section style="margin-top: 2rem;">
-    <h3>Node</h3>
-    <table class="dense">
-        <tbody>
-            <tr><th>server_id</th><td><code>{{ server_id }}</code></td></tr>
-            <tr><th>schema version</th><td>{{ schema_version }}</td></tr>
-            <tr><th>nl-router version</th><td>{{ nlrouter_version }}</td></tr>
-        </tbody>
-    </table>
-</section>
+{# ---- Node metadata: tiny fact pair ---------------------------------- #}
+<div class="card">
+    <h3 class="card-title">Node</h3>
+    <dl class="kv">
+        <dt>Server ID</dt>      <dd><code>{{ server_id }}</code></dd>
+        <dt>Schema version</dt> <dd>{{ schema_version or "—" }}</dd>
+        <dt>nl-router</dt>      <dd>v{{ nlrouter_version }}</dd>
+    </dl>
+</div>
 {% endblock %}

@@ -1,38 +1,38 @@
-{% extends "base.html" %}
+{% extends "base_unauth.html" %}
 
 {% block title %}Sign in — nl-router{% endblock %}
 
 {% block content %}
-<article style="max-width: 480px; margin: 4rem auto;">
-    <header>
-        <h1 style="margin: 0;">nl-router</h1>
-        <small class="muted">Sign in with your API token</small>
-    </header>
+    <h1>Sign in</h1>
+    <p class="subtitle">Paste your API token to access this nl-router node.</p>
 
     {% if error %}
         <div class="flash flash-err">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="/ui/login{% if next %}?next={{ next }}{% endif %}">
-        <label for="token">API token</label>
-        <input type="password" id="token" name="token"
-               placeholder="nlr_..."
-               autocomplete="off"
-               autofocus required>
-        <small>
-            Mint one via <code>sudo nl-router init</code> (first run) or
-            <code>POST /api/v1/tokens</code>.
-        </small>
+    <form method="post" action="/ui/login{% if next %}?next={{ next }}{% endif %}"
+          class="stack">
+        <div class="form-group">
+            <label for="token">API token</label>
+            <input type="password" id="token" name="token"
+                   placeholder="nlr_..."
+                   autocomplete="off"
+                   autofocus required>
+            <span class="help">
+                Mint one via <code>sudo nl-router init</code> on first run,
+                or <code>POST /api/v1/tokens</code> from an existing admin
+                token.
+            </span>
+        </div>
 
-        <button type="submit" style="margin-top: 1rem;">Sign in</button>
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+            Sign in
+        </button>
     </form>
 
-    <footer>
-        <small>
-            The token is stored in an HttpOnly cookie scoped to this host.
-            Local user accounts and OIDC SSO are tracked in the deferred
-            list; for now token-paste is the only auth path for the UI.
-        </small>
-    </footer>
-</article>
+    <p class="muted" style="margin-top: var(--sp-5); font-size: var(--fs-xs);">
+        The token lives in an HttpOnly cookie scoped to this host. Local
+        accounts and OIDC SSO are tracked in the deferred list; token-paste
+        is the only auth path for the UI today.
+    </p>
 {% endblock %}

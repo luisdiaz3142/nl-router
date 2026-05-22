@@ -1,48 +1,67 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "holds" %}
 {% block title %}Cleanup holds — nl-router{% endblock %}
 
 {% block content %}
-<header>
-    <h1 style="margin: 0;">Cleanup holds</h1>
-</header>
+<div class="page-header">
+    <div>
+        <h1>Cleanup holds</h1>
+        <div class="subtitle">
+            Studies the cleaner will skip until the hold is released.
+        </div>
+    </div>
+</div>
 
-<p class="muted">
-    Rows the cleaner will skip until the hold is released. Holds never
-    auto-expire — operators must explicitly release them.
+<p class="page-intro">
+    Holds never auto-expire — operators must explicitly release them. Use
+    them for legal hold scenarios or when investigating a delivery issue
+    you don't want the cleaner pruning out from under you.
 </p>
 
 {% if rows %}
-<table class="dense">
-    <thead><tr>
-        <th>Held since</th><th>Held by</th><th>Reason</th>
-        <th>Study UID</th><th>Calling</th><th>Modality</th><th>Status</th><th></th>
-    </tr></thead>
-    <tbody>
-        {% for r in rows %}
-        <tr>
-            <td><small>{{ r.cleanup_hold_at }}</small></td>
-            <td><small><code>{{ r.cleanup_hold_by or '—' }}</code></small></td>
-            <td>{{ r.cleanup_hold_reason or '—' }}</td>
-            <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.short_uid }}</code></a></td>
-            <td><code>{{ r.calling_aet }}</code></td>
-            <td>{{ r.modality or '—' }}</td>
-            <td><span class="pill pill-{{ r.pill }}">{{ r.status }}</span></td>
-            <td>
-                <form method="post" action="/ui/studies/{{ r.id }}/release"
-                      style="display: inline; margin: 0;"
-                      onsubmit="return confirm('Release the cleanup hold on study {{ r.short_uid }}?');">
-                    <button type="submit" class="secondary outline"
-                            style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
-                        release
-                    </button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th class="shrink">Held since</th>
+                <th class="shrink">Held by</th>
+                <th>Reason</th>
+                <th>Study UID</th>
+                <th class="shrink">Calling</th>
+                <th class="shrink">Modality</th>
+                <th class="shrink">Status</th>
+                <th class="shrink"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td><small>{{ r.cleanup_hold_at }}</small></td>
+                <td><small><code>{{ r.cleanup_hold_by or '—' }}</code></small></td>
+                <td>{{ r.cleanup_hold_reason or '—' }}</td>
+                <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.short_uid }}</code></a></td>
+                <td><code>{{ r.calling_aet }}</code></td>
+                <td>{{ r.modality or '—' }}</td>
+                <td><span class="badge badge-{{ r.pill }}">{{ r.status }}</span></td>
+                <td>
+                    <form method="post" action="/ui/studies/{{ r.id }}/release"
+                          style="display: inline; margin: 0;"
+                          onsubmit="return confirm('Release the cleanup hold on study {{ r.short_uid }}?');">
+                        <button type="submit" class="btn btn-ghost btn-sm">
+                            Release
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<p><em>No rows are currently on cleanup hold.</em></p>
+<div class="empty-state">
+    <h3>No active holds</h3>
+    <p>Studies with <code>cleanup_hold = TRUE</code> would show up here.</p>
+</div>
 {% endif %}
 {% endblock %}

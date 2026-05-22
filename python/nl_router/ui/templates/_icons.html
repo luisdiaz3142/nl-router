@@ -1,0 +1,79 @@
+{# Reusable inline-SVG glyphs.
+
+   - `lantern_logo(size)` — branded New Lantern lantern with a brand-
+     gradient glow inside. Strokes use currentColor so the glyph picks
+     up its surrounding text color (light on dark sidebar, dark on
+     light card); the inner glow always uses the brand gradient.
+   - `icon(name, size)` — small (default 18 px) line icon for the
+     sidebar nav and inline action buttons. Heroicons-style: 24x24
+     viewBox, currentColor stroke at 1.6 px.
+
+   Kept in a partial so base templates and forms can both import them
+   without duplication.
+#}
+
+{% macro lantern_logo(size=22) -%}
+    <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none"
+         aria-hidden="true">
+        <defs>
+            <radialGradient id="nlrLanternGlow{{ size }}" cx="50%" cy="55%" r="45%">
+                <stop offset="0%"   stop-color="#3EECD5"/>
+                <stop offset="100%" stop-color="#0099FF"/>
+            </radialGradient>
+        </defs>
+        <path d="M10 3h4M12 3v2"
+              stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <rect x="6" y="5" width="12" height="15" rx="2"
+              stroke="currentColor" stroke-width="1.6" fill="none"/>
+        <circle cx="12" cy="12.5" r="3.2" fill="url(#nlrLanternGlow{{ size }})"/>
+        <path d="M6.5 20h11"
+              stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+{%- endmacro %}
+
+{% macro icon(name, size=18) -%}
+    <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="1.6"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        {% if name == "dashboard" %}
+            <rect x="3" y="3"  width="7" height="9"  rx="1.5"/>
+            <rect x="14" y="3" width="7" height="5"  rx="1.5"/>
+            <rect x="14" y="12" width="7" height="9" rx="1.5"/>
+            <rect x="3" y="16" width="7" height="5"  rx="1.5"/>
+        {% elif name == "rules" %}
+            <path d="M4 6h16M4 12h16M4 18h10"/>
+            <circle cx="18" cy="18" r="1.5"/>
+        {% elif name == "destinations" %}
+            <path d="M3 12l18-9-7 18-2-7-9-2z"/>
+        {% elif name == "modules" %}
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+        {% elif name == "credentials" %}
+            <circle cx="8" cy="15" r="3"/>
+            <path d="M10 13l9-9M16 7l3 3M14 9l3 3"/>
+        {% elif name == "studies" %}
+            <path d="M4 5a2 2 0 0 1 2-2h7l2 3h5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z"/>
+        {% elif name == "holds" %}
+            <rect x="6" y="5" width="4" height="14" rx="1"/>
+            <rect x="14" y="5" width="4" height="14" rx="1"/>
+        {% elif name == "audit" %}
+            <path d="M9 3h6a2 2 0 0 1 2 2v0h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2v0a2 2 0 0 1 2-2z"/>
+            <path d="M9 13l2 2 4-4"/>
+        {% elif name == "config" %}
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+        {% elif name == "logout" %}
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+        {% elif name == "plus" %}
+            <path d="M12 5v14M5 12h14"/>
+        {% elif name == "edit" %}
+            <path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4z"/>
+        {% elif name == "trash" %}
+            <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/>
+        {% elif name == "external" %}
+            <path d="M15 3h6v6M14 10l7-7M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
+        {% endif %}
+    </svg>
+{%- endmacro %}

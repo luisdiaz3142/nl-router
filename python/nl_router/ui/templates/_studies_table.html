@@ -1,31 +1,43 @@
 {# Just the table content — used both as the initial render inside
    studies_list.html and as the HTMX-polled refresh body. No layout. #}
 {% if rows %}
-<table class="dense">
-    <thead><tr>
-        <th>Received</th><th>Status</th><th>Calling</th><th>Modality</th>
-        <th>Accession</th><th>Patient</th><th>Study UID</th>
-        <th>Inst</th><th>Bytes</th>
-    </tr></thead>
-    <tbody>
-        {% for r in rows %}
-        <tr>
-            <td><small>{{ r.received_at.strftime("%H:%M:%S") if r.received_at else "—" }}</small></td>
-            <td>
-                <span class="pill pill-{{ r.pill }}">{{ r.status }}</span>
-                {% if r.cleanup_hold %}<span class="pill pill-warn" title="cleanup hold set">held</span>{% endif %}
-            </td>
-            <td><code>{{ r.calling_aet }}</code></td>
-            <td>{{ r.modality or "—" }}</td>
-            <td>{{ r.accession_number or "—" }}</td>
-            <td>{{ r.patient_id or "—" }}</td>
-            <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.short_uid }}</code></a></td>
-            <td style="text-align:right">{{ r.instance_count }}</td>
-            <td style="text-align:right">{{ "{:,}".format(r.byte_count) }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th class="shrink">Received</th>
+                <th class="shrink">Status</th>
+                <th class="shrink">Calling</th>
+                <th class="shrink">Modality</th>
+                <th>Accession</th>
+                <th>Patient</th>
+                <th>Study UID</th>
+                <th class="num shrink">Inst</th>
+                <th class="num shrink">Bytes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td><small>{{ r.received_at.strftime("%H:%M:%S") if r.received_at else "—" }}</small></td>
+                <td>
+                    <span class="badge badge-{{ r.pill }}">{{ r.status }}</span>
+                    {% if r.cleanup_hold %}
+                        <span class="badge badge-warn" title="cleanup hold set">held</span>
+                    {% endif %}
+                </td>
+                <td><code>{{ r.calling_aet }}</code></td>
+                <td>{{ r.modality or "—" }}</td>
+                <td>{{ r.accession_number or "—" }}</td>
+                <td>{{ r.patient_id or "—" }}</td>
+                <td><a href="/ui/studies/{{ r.id }}"><code>{{ r.short_uid }}</code></a></td>
+                <td class="num">{{ r.instance_count }}</td>
+                <td class="num">{{ "{:,}".format(r.byte_count) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<p><em>No studies match the current filters.</em></p>
+<p class="muted"><em>No studies match the current filters.</em></p>
 {% endif %}

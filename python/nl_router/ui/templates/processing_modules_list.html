@@ -1,15 +1,22 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "modules" %}
 {% block title %}Processing modules — nl-router{% endblock %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">Processing modules</h1>
-    <span style="flex: 1;"></span>
-    <a href="/ui/processing-modules/new" role="button">+ Register module</a>
-</header>
+<div class="page-header">
+    <div>
+        <h1>Processing modules</h1>
+        <div class="subtitle">Per-kind worker binaries registered with this cluster.</div>
+    </div>
+    <div class="actions">
+        <a href="/ui/processing-modules/new" class="btn btn-primary">
+            {{ icon("plus", 16) }} Register module
+        </a>
+    </div>
+</div>
 
-<p class="muted">
+<p class="page-intro">
     Each row registers a binary at
     <code>/usr/libexec/nl-router/modules/&lt;kind&gt;</code> that runs as a
     worker (via <code>nl-router-module@&lt;kind&gt;</code>). Rules attach
@@ -19,46 +26,60 @@
 </p>
 
 {% if modules %}
-<table class="dense">
-    <thead><tr>
-        <th>Name</th><th>Kind</th><th>Enabled</th>
-        <th>Used by rules</th><th>Updated</th><th></th>
-    </tr></thead>
-    <tbody>
-        {% for m in modules %}
-        <tr>
-            <td>
-                <a href="/ui/processing-modules/{{ m.id }}"><strong>{{ m.name }}</strong></a>
-                {% if m.description %}<br><small class="muted">{{ m.description }}</small>{% endif %}
-            </td>
-            <td><code>{{ m.kind }}</code></td>
-            <td>
-                {% if m.enabled %}
-                    <span class="pill pill-ok">enabled</span>
-                {% else %}
-                    <span class="pill pill-muted">disabled</span>
-                {% endif %}
-            </td>
-            <td style="text-align:right">{{ m.rule_count }}</td>
-            <td><small>{{ m.updated_at }}</small></td>
-            <td><a href="/ui/processing-modules/{{ m.id }}">edit</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th class="shrink">Kind</th>
+                <th class="shrink">Enabled</th>
+                <th class="num shrink">Used by rules</th>
+                <th class="shrink">Updated</th>
+                <th class="shrink"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in modules %}
+            <tr>
+                <td>
+                    <a href="/ui/processing-modules/{{ m.id }}"><strong>{{ m.name }}</strong></a>
+                    {% if m.description %}
+                        <div class="muted">{{ m.description }}</div>
+                    {% endif %}
+                </td>
+                <td><code>{{ m.kind }}</code></td>
+                <td>
+                    {% if m.enabled %}
+                        <span class="badge badge-ok">enabled</span>
+                    {% else %}
+                        <span class="badge badge-muted">disabled</span>
+                    {% endif %}
+                </td>
+                <td class="num">{{ m.rule_count }}</td>
+                <td><small>{{ m.updated_at }}</small></td>
+                <td>
+                    <a href="/ui/processing-modules/{{ m.id }}" class="btn btn-ghost btn-sm">
+                        {{ icon("edit", 14) }} Edit
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<article>
-    <header><strong>No processing modules registered</strong></header>
+<div class="empty-state">
+    <h3>No processing modules registered</h3>
     <p>
         Migration <code>0009_seed_processing_modules</code> pre-registers the
         built-in modules. If you see this empty state, run
-        <code>sudo nl-router migrate up</code> on this node.
-    </p>
-    <p>
-        For custom modules, register them after installing the binary at
+        <code>sudo nl-router migrate up</code> on this node. For custom
+        modules, register them after installing the binary at
         <code>/usr/libexec/nl-router/modules/&lt;kind&gt;</code>.
     </p>
-    <p><a href="/ui/processing-modules/new" role="button">Register a module</a></p>
-</article>
+    <a href="/ui/processing-modules/new" class="btn btn-primary">
+        {{ icon("plus", 16) }} Register a module
+    </a>
+</div>
 {% endif %}
 {% endblock %}

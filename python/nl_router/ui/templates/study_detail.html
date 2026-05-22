@@ -3,161 +3,201 @@
 {% block title %}Study {{ row.id }} — nl-router{% endblock %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">Study #{{ row.id }}</h1>
-    <span class="pill pill-{{ row.pill }}">{{ row.status }}</span>
-    {% if row.cleanup_hold %}<span class="pill pill-warn">on hold</span>{% endif %}
-    <span style="flex: 1;"></span>
-    <a href="/ui/studies">← back to studies</a>
-</header>
-
-<section style="margin-top: 1rem;">
-    <h3>Identity</h3>
-    <table class="dense">
-        <tbody>
-            <tr><th>Study UID</th><td><code>{{ row.study_instance_uid }}</code></td></tr>
-            <tr><th>Series UID</th><td><code>{{ row.series_instance_uid or '—' }}</code></td></tr>
-            <tr><th>Accession</th><td>{{ row.accession_number or '—' }}</td></tr>
-            <tr><th>Patient ID</th><td>{{ row.patient_id or '—' }}</td></tr>
-            <tr><th>Patient name</th><td>{{ row.patient_name or '—' }}</td></tr>
-            <tr><th>Modality</th><td>{{ row.modality or '—' }}</td></tr>
-            <tr><th>Description</th><td>{{ row.study_description or '—' }}</td></tr>
-            <tr><th>Body part</th><td>{{ row.body_part_examined or '—' }}</td></tr>
-        </tbody>
-    </table>
-</section>
-
-<section style="margin-top: 2rem;">
-    <h3>Network context</h3>
-    <table class="dense">
-        <tbody>
-            <tr><th>Calling AET</th><td><code>{{ row.calling_aet }}</code></td></tr>
-            <tr><th>Called AET</th><td><code>{{ row.called_aet }}</code></td></tr>
-            <tr><th>Peer IP</th><td><code>{{ row.peer_ip }}</code></td></tr>
-            <tr><th>Server ID</th><td><code>{{ row.server_id }}</code></td></tr>
-            <tr><th>Received</th><td>{{ row.received_at }}</td></tr>
-            <tr><th>Closed</th><td>{{ row.closed_at }} <small class="muted">(trigger: {{ row.close_trigger }})</small></td></tr>
-            <tr><th>Instances / bytes</th><td>{{ row.instance_count }} / {{ "{:,}".format(row.byte_count) }}</td></tr>
-            <tr><th>File root</th><td><code>{{ row.file_root_path }}</code></td></tr>
-        </tbody>
-    </table>
-</section>
-
-<section style="margin-top: 2rem;">
-    <h3>Timeline</h3>
-    <table class="dense">
-        <tbody>
-            <tr><th>Status</th><td><span class="pill pill-{{ row.pill }}">{{ row.status }}</span></td></tr>
-            <tr><th>Received</th><td>{{ row.received_at }}</td></tr>
-            <tr><th>Routed</th><td>{{ row.routed_at or '—' }}</td></tr>
-            <tr><th>Processed</th><td>{{ row.processed_at or '—' }}</td></tr>
-            <tr><th>Dispatched</th><td>{{ row.dispatched_at or '—' }}</td></tr>
-            <tr><th>Cleaned</th><td>{{ row.cleaned_at or '—' }}</td></tr>
-            {% if row.last_error %}
-                <tr>
-                    <th>Last error</th>
-                    <td>
-                        <span class="pill pill-err">{{ row.failed_phase or 'failed' }}</span>
-                        <pre style="margin-top: 0.5rem;">{{ row.last_error }}</pre>
-                        <small>Retry count: {{ row.retry_count }}</small>
-                    </td>
-                </tr>
+<div class="page-header">
+    <div>
+        <h1 style="display: flex; align-items: center; gap: var(--sp-3);">
+            Study <span class="muted">#{{ row.id }}</span>
+            <span class="badge badge-{{ row.pill }}">{{ row.status }}</span>
+            {% if row.cleanup_hold %}
+                <span class="badge badge-warn">on hold</span>
             {% endif %}
-        </tbody>
-    </table>
-</section>
+        </h1>
+    </div>
+    <div class="actions">
+        <a href="/ui/studies" class="btn btn-ghost">← Back to studies</a>
+    </div>
+</div>
 
-<section style="margin-top: 2rem;">
-    <h3>Route assignments ({{ assignments | length }})</h3>
+{# ---- Identity + network context side by side ---- #}
+<div class="form-row" style="margin-bottom: var(--sp-5);">
+    <div class="card" style="margin: 0;">
+        <h3 class="card-title">Identity</h3>
+        <dl class="kv">
+            <dt>Study UID</dt>      <dd><code>{{ row.study_instance_uid }}</code></dd>
+            <dt>Series UID</dt>     <dd><code>{{ row.series_instance_uid or '—' }}</code></dd>
+            <dt>Accession</dt>      <dd>{{ row.accession_number or '—' }}</dd>
+            <dt>Patient ID</dt>     <dd>{{ row.patient_id or '—' }}</dd>
+            <dt>Patient name</dt>   <dd>{{ row.patient_name or '—' }}</dd>
+            <dt>Modality</dt>       <dd>{{ row.modality or '—' }}</dd>
+            <dt>Description</dt>   <dd>{{ row.study_description or '—' }}</dd>
+            <dt>Body part</dt>      <dd>{{ row.body_part_examined or '—' }}</dd>
+        </dl>
+    </div>
+
+    <div class="card" style="margin: 0;">
+        <h3 class="card-title">Network context</h3>
+        <dl class="kv">
+            <dt>Calling AET</dt>     <dd><code>{{ row.calling_aet }}</code></dd>
+            <dt>Called AET</dt>      <dd><code>{{ row.called_aet }}</code></dd>
+            <dt>Peer IP</dt>         <dd><code>{{ row.peer_ip }}</code></dd>
+            <dt>Server ID</dt>       <dd><code>{{ row.server_id }}</code></dd>
+            <dt>Received</dt>        <dd>{{ row.received_at }}</dd>
+            <dt>Closed</dt>          <dd>{{ row.closed_at }}
+                                        <span class="muted">(trigger: {{ row.close_trigger }})</span></dd>
+            <dt>Instances</dt>       <dd>{{ row.instance_count }}</dd>
+            <dt>Bytes</dt>           <dd>{{ "{:,}".format(row.byte_count) }}</dd>
+            <dt>File root</dt>       <dd><code>{{ row.file_root_path }}</code></dd>
+        </dl>
+    </div>
+</div>
+
+{# ---- Timeline ---- #}
+<div class="card">
+    <h3 class="card-title">Timeline</h3>
+    <dl class="kv">
+        <dt>Status</dt>      <dd><span class="badge badge-{{ row.pill }}">{{ row.status }}</span></dd>
+        <dt>Received</dt>    <dd>{{ row.received_at }}</dd>
+        <dt>Routed</dt>      <dd>{{ row.routed_at or '—' }}</dd>
+        <dt>Processed</dt>   <dd>{{ row.processed_at or '—' }}</dd>
+        <dt>Dispatched</dt>  <dd>{{ row.dispatched_at or '—' }}</dd>
+        <dt>Cleaned</dt>     <dd>{{ row.cleaned_at or '—' }}</dd>
+    </dl>
+    {% if row.last_error %}
+        <div class="flash flash-err" style="margin-top: var(--sp-4);">
+            <strong>{{ row.failed_phase or 'failed' }}:</strong>
+            retry {{ row.retry_count }}
+            <pre style="margin-top: var(--sp-2); background: rgba(255,255,255,0.5);">{{ row.last_error }}</pre>
+        </div>
+    {% endif %}
+</div>
+
+{# ---- Route assignments ---- #}
+<div class="card">
+    <h3 class="card-title">
+        Route assignments <span class="muted">({{ assignments | length }})</span>
+    </h3>
     {% if assignments %}
-    <table class="dense">
-        <thead><tr>
-            <th>#</th><th>Destination</th><th>Kind</th><th>Status</th>
-            <th>Attempts</th><th>Next retry</th><th>Dispatched</th><th>Error</th>
-        </tr></thead>
-        <tbody>
-            {% for a in assignments %}
-            <tr>
-                <td>{{ a.id }}</td>
-                <td><a href="/ui/destinations/{{ a.destination_id }}">{{ a.destination_name }}</a></td>
-                <td><code>{{ a.dispatch_kind }}</code></td>
-                <td><span class="pill pill-{{ a.pill }}">{{ a.status }}</span></td>
-                <td style="text-align:right">{{ a.attempts }}</td>
-                <td><small>{{ a.next_retry_at or '—' }}</small></td>
-                <td><small>{{ a.dispatched_at or '—' }}</small></td>
-                <td><small>{{ a.last_error[:80] if a.last_error else '—' }}</small></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th class="num shrink">#</th>
+                        <th>Destination</th>
+                        <th class="shrink">Kind</th>
+                        <th class="shrink">Status</th>
+                        <th class="num shrink">Attempts</th>
+                        <th class="shrink">Next retry</th>
+                        <th class="shrink">Dispatched</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in assignments %}
+                    <tr>
+                        <td class="num">{{ a.id }}</td>
+                        <td><a href="/ui/destinations/{{ a.destination_id }}">{{ a.destination_name }}</a></td>
+                        <td><code>{{ a.dispatch_kind }}</code></td>
+                        <td><span class="badge badge-{{ a.pill }}">{{ a.status }}</span></td>
+                        <td class="num">{{ a.attempts }}</td>
+                        <td><small>{{ a.next_retry_at or '—' }}</small></td>
+                        <td><small>{{ a.dispatched_at or '—' }}</small></td>
+                        <td><small>{{ a.last_error[:80] if a.last_error else '—' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
-        <p><em>No route assignments. The router hasn't matched this row to any destinations yet — check that an enabled rule matches the tags.</em></p>
+        <p class="muted">
+            <em>No route assignments. The router hasn't matched this row to
+            any destinations yet — check that an enabled rule matches the
+            tags.</em>
+        </p>
     {% endif %}
-</section>
+</div>
 
-<section style="margin-top: 2rem;">
-    <h3>Processing jobs ({{ jobs | length }})</h3>
+{# ---- Processing jobs ---- #}
+<div class="card">
+    <h3 class="card-title">
+        Processing jobs <span class="muted">({{ jobs | length }})</span>
+    </h3>
     {% if jobs %}
-    <table class="dense">
-        <thead><tr>
-            <th>Ord</th><th>Module</th><th>Status</th><th>Attempts</th>
-            <th>Started</th><th>Completed</th><th>Output path</th>
-        </tr></thead>
-        <tbody>
-            {% for j in jobs %}
-            <tr>
-                <td>{{ j.ordinal }}</td>
-                <td><code>{{ j.module_kind }}</code></td>
-                <td><span class="pill pill-{{ j.pill }}">{{ j.status }}</span></td>
-                <td style="text-align:right">{{ j.attempts }}</td>
-                <td><small>{{ j.started_at or '—' }}</small></td>
-                <td><small>{{ j.completed_at or '—' }}</small></td>
-                <td><small><code>{{ (j.output_path or '—') | truncate(60) }}</code></small></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th class="num shrink">Ord</th>
+                        <th>Module</th>
+                        <th class="shrink">Status</th>
+                        <th class="num shrink">Attempts</th>
+                        <th class="shrink">Started</th>
+                        <th class="shrink">Completed</th>
+                        <th>Output path</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for j in jobs %}
+                    <tr>
+                        <td class="num">{{ j.ordinal }}</td>
+                        <td><code>{{ j.module_kind }}</code></td>
+                        <td><span class="badge badge-{{ j.pill }}">{{ j.status }}</span></td>
+                        <td class="num">{{ j.attempts }}</td>
+                        <td><small>{{ j.started_at or '—' }}</small></td>
+                        <td><small>{{ j.completed_at or '—' }}</small></td>
+                        <td><small><code>{{ (j.output_path or '—') | truncate(60) }}</code></small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
-        <p><small class="muted">No processing chain on the matched rule(s).</small></p>
+        <p class="muted">
+            <em>No processing chain on the matched rule(s).</em>
+        </p>
     {% endif %}
-</section>
+</div>
 
 {# ---- Cleanup hold ---- #}
-<section style="margin-top: 2rem;">
-    <h3>Cleanup hold</h3>
+<div class="card">
+    <h3 class="card-title">Cleanup hold</h3>
     {% if row.cleanup_hold %}
-        <article style="border-left: 4px solid #ffc107;">
-            <strong>This row is held.</strong>
-            The cleaner will skip it until released.
-            <ul>
-                <li><strong>Set by:</strong> <code>{{ row.cleanup_hold_by }}</code></li>
-                <li><strong>Set at:</strong> {{ row.cleanup_hold_at }}</li>
-                <li><strong>Reason:</strong> {{ row.cleanup_hold_reason or '—' }}</li>
-            </ul>
-            <form method="post" action="/ui/studies/{{ row.id }}/release"
-                  onsubmit="return confirm('Release the cleanup hold? The row will then become eligible for retention-driven cleanup.');">
-                <button type="submit" class="secondary">Release hold</button>
-            </form>
-        </article>
+        <div class="flash flash-err" style="border-color: var(--color-warn); background: var(--color-warn-soft); color: #9a3412;">
+            <strong>This row is held.</strong> The cleaner will skip it
+            until released.
+        </div>
+        <dl class="kv">
+            <dt>Set by</dt>   <dd><code>{{ row.cleanup_hold_by }}</code></dd>
+            <dt>Set at</dt>   <dd>{{ row.cleanup_hold_at }}</dd>
+            <dt>Reason</dt>   <dd>{{ row.cleanup_hold_reason or '—' }}</dd>
+        </dl>
+        <form method="post" action="/ui/studies/{{ row.id }}/release"
+              style="margin-top: var(--sp-3);"
+              onsubmit="return confirm('Release the cleanup hold? The row will then become eligible for retention-driven cleanup.');">
+            <button type="submit" class="btn btn-ghost">Release hold</button>
+        </form>
     {% else %}
         <details>
-            <summary>Place a cleanup hold</summary>
+            <summary style="cursor: pointer; font-weight: 600; color: var(--color-brand);">
+                + Place a cleanup hold
+            </summary>
             <form method="post" action="/ui/studies/{{ row.id }}/hold"
-                  style="margin-top: 1rem;">
-                <label>Reason <small class="muted">(audit trail)</small></label>
-                <input type="text" name="reason"
-                       placeholder="legal hold / debugging / pending re-route">
-                <button type="submit">Place hold</button>
+                  style="margin-top: var(--sp-3);">
+                <div class="form-group">
+                    <label for="hold-reason">Reason <span class="muted">(audit trail)</span></label>
+                    <input type="text" name="reason" id="hold-reason"
+                           placeholder="legal hold / debugging / pending re-route">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Place hold</button>
             </form>
         </details>
     {% endif %}
-</section>
+</div>
 
 {# ---- Raw tags JSONB ---- #}
-<section style="margin-top: 2rem;">
+<div class="card">
     <details>
-        <summary>Raw tags (JSONB)</summary>
-        <pre style="margin-top: 0.5rem;">{{ row.tags_pretty }}</pre>
+        <summary style="cursor: pointer; font-weight: 600;">Raw tags (JSONB)</summary>
+        <pre style="margin-top: var(--sp-3);">{{ row.tags_pretty }}</pre>
     </details>
-</section>
+</div>
 {% endblock %}

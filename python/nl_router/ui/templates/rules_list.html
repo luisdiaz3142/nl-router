@@ -1,60 +1,83 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "rules" %}
 {% block title %}Rules — nl-router{% endblock %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">Rules</h1>
-    <span style="flex: 1;"></span>
-    <a href="/ui/rules/new" role="button">+ New rule</a>
-</header>
+<div class="page-header">
+    <div>
+        <h1>Rules</h1>
+        <div class="subtitle">
+            Routing predicates evaluated against each received study.
+        </div>
+    </div>
+    <div class="actions">
+        <a href="/ui/rules/new" class="btn btn-primary">
+            {{ icon("plus", 16) }} New rule
+        </a>
+    </div>
+</div>
 
-<p class="muted">
-    Rules are matched in priority order (highest first). Each enabled
-    rule whose predicate evaluates true contributes its destinations to
-    the dispatch fan-out — there's no "stop on match." Edit a rule to
-    bind / unbind destinations.
+<p class="page-intro">
+    Rules are matched in priority order (highest first). Each enabled rule
+    whose predicate evaluates true contributes its destinations to the
+    dispatch fan-out — there's no "stop on match." Edit a rule to bind or
+    unbind destinations.
 </p>
 
 {% if rules %}
-<table class="dense">
-    <thead>
-        <tr>
-            <th>Pri</th><th>Name</th><th>Scope</th><th>Status</th>
-            <th>Predicate</th><th>Dests</th><th>Dispatch</th><th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for r in rules %}
-        <tr>
-            <td>{{ r.priority }}</td>
-            <td>
-                <a href="/ui/rules/{{ r.id }}"><strong>{{ r.name }}</strong></a>
-                {% if r.description %}<br><small class="muted">{{ r.description }}</small>{% endif %}
-            </td>
-            <td>{{ r.scope }}</td>
-            <td><span class="pill pill-{{ r.pill }}">{{ r.status }}</span></td>
-            <td>
-                <code style="display:inline-block; max-width: 380px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle;">
-                    {{ r.predicate }}
-                </code>
-            </td>
-            <td style="text-align: right">{{ r.dest_count }}</td>
-            <td>{{ r.dispatch_order }}</td>
-            <td><a href="/ui/rules/{{ r.id }}">edit</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="table-wrap">
+    <table class="table-data">
+        <thead>
+            <tr>
+                <th class="num shrink">Pri</th>
+                <th>Name</th>
+                <th class="shrink">Scope</th>
+                <th class="shrink">Status</th>
+                <th>Predicate</th>
+                <th class="num shrink">Dests</th>
+                <th class="shrink">Dispatch</th>
+                <th class="shrink"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rules %}
+            <tr>
+                <td class="num">{{ r.priority }}</td>
+                <td>
+                    <a href="/ui/rules/{{ r.id }}"><strong>{{ r.name }}</strong></a>
+                    {% if r.description %}
+                        <div class="muted">{{ r.description }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ r.scope }}</td>
+                <td><span class="badge badge-{{ r.pill }}">{{ r.status }}</span></td>
+                <td>
+                    <code class="truncate">{{ r.predicate }}</code>
+                </td>
+                <td class="num">{{ r.dest_count }}</td>
+                <td><span class="badge badge-muted">{{ r.dispatch_order }}</span></td>
+                <td>
+                    <a href="/ui/rules/{{ r.id }}" class="btn btn-ghost btn-sm">
+                        {{ icon("edit", 14) }} Edit
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-<article>
-    <header><strong>No rules yet</strong></header>
+<div class="empty-state">
+    <h3>No rules yet</h3>
     <p>
-        Create your first rule to start routing incoming studies.
-        Rules use a dicomdiablo-compatible expression DSL — for
-        example: <code>tags.Modality == "CT"</code>.
+        Create your first rule to start routing incoming studies. Rules
+        use a dicomdiablo-compatible expression DSL — for example
+        <code>tags.Modality == "CT"</code>.
     </p>
-    <p><a href="/ui/rules/new" role="button">Create a rule</a></p>
-</article>
+    <a href="/ui/rules/new" class="btn btn-primary">
+        {{ icon("plus", 16) }} Create a rule
+    </a>
+</div>
 {% endif %}
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "rules" %}
 {% block title %}
 {% if mode == "create" %}New rule{% else %}{{ rule.name }} — Rules{% endif %}
@@ -7,143 +8,171 @@
 
 {% macro field_error(name) %}
     {% if errors and errors[name] %}
-        <small class="field-error">{{ errors[name] }}</small>
+        <div class="field-error">{{ errors[name] }}</div>
     {% endif %}
 {% endmacro %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">
-        {% if mode == "create" %}New rule{% else %}Edit rule: {{ rule.name }}{% endif %}
-    </h1>
-    <span style="flex: 1;"></span>
-    <a href="/ui/rules">← back to rules</a>
-</header>
+<div class="page-header">
+    <div>
+        <h1>
+            {% if mode == "create" %}New rule
+            {% else %}Edit rule
+            {% endif %}
+        </h1>
+        {% if mode == "edit" %}
+            <div class="subtitle"><code>{{ rule.name }}</code></div>
+        {% endif %}
+    </div>
+    <div class="actions">
+        <a href="/ui/rules" class="btn btn-ghost">← Back to rules</a>
+    </div>
+</div>
 
 {% if errors and errors.__form__ %}
     <div class="flash flash-err">{{ errors.__form__ }}</div>
 {% endif %}
 
-{# ---- The rule form itself ---- #}
 <form method="post"
       action="{% if mode == 'create' %}/ui/rules{% else %}/ui/rules/{{ rule.id }}{% endif %}">
 
-    <label for="name">Name <small class="muted">(unique)</small></label>
-    <input type="text" id="name" name="name" required maxlength="200"
-           value="{{ rule.name }}"
-           aria-invalid="{{ 'true' if errors and errors.name else 'false' }}">
-    {{ field_error("name") }}
+    <div class="card">
+        <div class="form-group">
+            <label for="name">Name <span class="muted">(unique)</span></label>
+            <input type="text" id="name" name="name" required maxlength="200"
+                   value="{{ rule.name }}">
+            {{ field_error("name") }}
+        </div>
 
-    <label for="description">Description <small class="muted">(optional)</small></label>
-    <input type="text" id="description" name="description"
-           value="{{ rule.description or '' }}">
+        <div class="form-group">
+            <label for="description">Description <span class="muted">(optional)</span></label>
+            <input type="text" id="description" name="description"
+                   value="{{ rule.description or '' }}">
+        </div>
 
-    <div class="grid">
-        <label>
-            Scope
-            <select name="scope" aria-invalid="{{ 'true' if errors and errors.scope else 'false' }}">
-                <option value="study"  {% if rule.scope == 'study' %}selected{% endif %}>study</option>
-                <option value="series" {% if rule.scope == 'series' %}selected{% endif %}>series</option>
-            </select>
-            {{ field_error("scope") }}
-        </label>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="scope">Scope</label>
+                <select name="scope" id="scope">
+                    <option value="study"  {% if rule.scope == 'study' %}selected{% endif %}>study</option>
+                    <option value="series" {% if rule.scope == 'series' %}selected{% endif %}>series</option>
+                </select>
+                {{ field_error("scope") }}
+            </div>
+            <div class="form-group">
+                <label for="status">Status</label>
+                <select name="status" id="status">
+                    <option value="draft"    {% if rule.status == 'draft' %}selected{% endif %}>draft</option>
+                    <option value="disabled" {% if rule.status == 'disabled' %}selected{% endif %}>disabled</option>
+                    <option value="enabled"  {% if rule.status == 'enabled' %}selected{% endif %}>enabled</option>
+                </select>
+                {{ field_error("status") }}
+            </div>
+            <div class="form-group">
+                <label for="priority">Priority</label>
+                <input type="number" name="priority" id="priority"
+                       min="-32768" max="32767"
+                       value="{{ rule.priority }}">
+                {{ field_error("priority") }}
+            </div>
+            <div class="form-group">
+                <label for="dispatch_order">Dispatch order</label>
+                <select name="dispatch_order" id="dispatch_order">
+                    <option value="parallel"   {% if rule.dispatch_order == 'parallel' %}selected{% endif %}>parallel</option>
+                    <option value="sequential" {% if rule.dispatch_order == 'sequential' %}selected{% endif %}>sequential</option>
+                </select>
+                {{ field_error("dispatch_order") }}
+            </div>
+        </div>
 
-        <label>
-            Status
-            <select name="status">
-                <option value="draft"    {% if rule.status == 'draft' %}selected{% endif %}>draft</option>
-                <option value="disabled" {% if rule.status == 'disabled' %}selected{% endif %}>disabled</option>
-                <option value="enabled"  {% if rule.status == 'enabled' %}selected{% endif %}>enabled</option>
-            </select>
-            {{ field_error("status") }}
-        </label>
+        <div class="form-group">
+            <label for="predicate">Predicate</label>
+            <textarea id="predicate" name="predicate" rows="5" required
+                      placeholder='tags.Modality == "CT" and float(tags.SliceThickness) < 2.0'
+            >{{ rule.predicate }}</textarea>
+            {{ field_error("predicate") }}
+            <span class="help">
+                dicomdiablo-compatible DSL. Field access via <code>tags.X</code>
+                or <code>tags["X"]</code>. Operators:
+                <code>== != &lt; &lt;= &gt; &gt;= and or not in</code>.
+                String methods:
+                <code>.lower() .upper() .strip() .startswith() .endswith()</code>.
+                Casts: <code>float() int() str() bool() len()</code>.
+                Max 8 KiB, max 32-deep nesting.
+            </span>
+        </div>
 
-        <label>
-            Priority
-            <input type="number" name="priority" min="-32768" max="32767"
-                   value="{{ rule.priority }}">
-            {{ field_error("priority") }}
-        </label>
-
-        <label>
-            Dispatch order
-            <select name="dispatch_order">
-                <option value="parallel"   {% if rule.dispatch_order == 'parallel' %}selected{% endif %}>parallel</option>
-                <option value="sequential" {% if rule.dispatch_order == 'sequential' %}selected{% endif %}>sequential</option>
-            </select>
-            {{ field_error("dispatch_order") }}
-        </label>
-    </div>
-
-    <label for="predicate">Predicate</label>
-    <textarea id="predicate" name="predicate" rows="4" required
-              aria-invalid="{{ 'true' if errors and errors.predicate else 'false' }}"
-              placeholder='tags.Modality == "CT" and float(tags.SliceThickness) < 2.0'
-              style="font-family: var(--pico-font-family-monospace);"
-    >{{ rule.predicate }}</textarea>
-    {{ field_error("predicate") }}
-    <small class="muted">
-        dicomdiablo-compatible DSL. Field access via <code>tags.X</code>
-        or <code>tags["X"]</code>. Operators: <code>== != &lt; &lt;= &gt; &gt;= and or not in</code>.
-        String methods: <code>.lower() .upper() .strip() .startswith() .endswith()</code>.
-        Casts: <code>float() int() str() bool() len()</code>.
-        Max 8 KiB, max 32-deep nesting.
-    </small>
-
-    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-        <button type="submit">
-            {% if mode == "create" %}Create rule{% else %}Save changes{% endif %}
-        </button>
-        <a href="/ui/rules" role="button" class="secondary">Cancel</a>
+        <div class="row" style="margin-top: var(--sp-2);">
+            <button type="submit" class="btn btn-primary">
+                {% if mode == "create" %}Create rule{% else %}Save changes{% endif %}
+            </button>
+            <a href="/ui/rules" class="btn btn-ghost">Cancel</a>
+        </div>
     </div>
 </form>
 
 {# ---- Bindings (edit mode only) ---- #}
 {% if mode == "edit" %}
-<section style="margin-top: 3rem;">
-    <h3>Destination bindings</h3>
-    <p class="muted">
+<div class="card">
+    <h3 class="card-title">Destination bindings</h3>
+    <p class="muted" style="margin-top: calc(var(--sp-2) * -1);">
         When this rule matches, every bound destination receives a copy.
         Ordinal is only meaningful when dispatch_order = sequential.
     </p>
 
     {% if bindings %}
-    <table class="dense">
-        <thead><tr><th>Ord</th><th>Destination</th><th>Kind</th><th>Enabled</th><th></th></tr></thead>
-        <tbody>
-            {% for b in bindings %}
-            <tr>
-                <td>{{ b.ordinal }}</td>
-                <td><a href="/ui/destinations/{{ b.destination_id }}">{{ b.name }}</a></td>
-                <td><code>{{ b.kind }}</code></td>
-                <td>{{ "yes" if b.enabled else "no" }}</td>
-                <td>
-                    <form method="post"
-                          action="/ui/rules/{{ rule.id }}/destinations/{{ b.destination_id }}/unbind"
-                          style="display: inline; margin: 0;"
-                          onsubmit="return confirm('Unbind {{ b.name }}?');">
-                        <button type="submit" class="secondary outline"
-                                style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
-                            unbind
-                        </button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th class="num shrink">Ord</th>
+                        <th>Destination</th>
+                        <th class="shrink">Kind</th>
+                        <th class="shrink">Enabled</th>
+                        <th class="shrink"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in bindings %}
+                    <tr>
+                        <td class="num">{{ b.ordinal }}</td>
+                        <td><a href="/ui/destinations/{{ b.destination_id }}">{{ b.name }}</a></td>
+                        <td><code>{{ b.kind }}</code></td>
+                        <td>
+                            {% if b.enabled %}
+                                <span class="badge badge-ok">yes</span>
+                            {% else %}
+                                <span class="badge badge-muted">no</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post"
+                                  action="/ui/rules/{{ rule.id }}/destinations/{{ b.destination_id }}/unbind"
+                                  style="display: inline; margin: 0;"
+                                  onsubmit="return confirm('Unbind {{ b.name }}?');">
+                                <button type="submit" class="btn btn-ghost btn-sm">Unbind</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
-        <p><em>No destinations bound yet. This rule matches but produces zero copies.</em></p>
+        <p class="muted"><em>No destinations bound yet. This rule matches but
+            produces zero copies.</em></p>
     {% endif %}
 
     {% if available_destinations %}
-    <details>
-        <summary>+ Bind a destination</summary>
+    <details style="margin-top: var(--sp-4);">
+        <summary style="cursor: pointer; font-weight: 600; color: var(--color-brand);">
+            + Bind a destination
+        </summary>
         <form method="post" action="/ui/rules/{{ rule.id }}/destinations"
-              style="margin-top: 0.5rem;">
-            <div class="grid">
-                <label>
-                    Destination
+              style="margin-top: var(--sp-3);">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Destination</label>
                     <select name="destination_id" required>
                         {% for d in available_destinations %}
                             <option value="{{ d.id }}">
@@ -151,84 +180,96 @@
                             </option>
                         {% endfor %}
                     </select>
-                </label>
-                <label>
-                    Ordinal
+                </div>
+                <div class="form-group">
+                    <label>Ordinal</label>
                     <input type="number" name="ordinal" value="0">
-                </label>
+                </div>
             </div>
-            <button type="submit">Bind</button>
+            <button type="submit" class="btn btn-primary btn-sm">Bind</button>
         </form>
     </details>
     {% else %}
-        <p><small class="muted">All destinations are already bound (or none exist).
-            <a href="/ui/destinations/new">Create a destination →</a></small></p>
+        <p class="muted" style="margin-top: var(--sp-3);">
+            <small>All destinations are already bound (or none exist).
+                <a href="/ui/destinations/new">Create a destination →</a></small>
+        </p>
     {% endif %}
-</section>
+</div>
 
 {# ---- Processing chain ---- #}
-<section style="margin-top: 3rem;">
-    <h3>Processing chain</h3>
-    <p class="muted">
+<div class="card">
+    <h3 class="card-title">Processing chain</h3>
+    <p class="muted" style="margin-top: calc(var(--sp-2) * -1);">
         Modules that run between the router and the dispatcher when this
-        rule matches. Each step's <em>ordinal</em> sets the execution
-        order (lower runs first). The router materializes one
-        <code>processing_jobs</code> row per step per matched study, and
-        each step's output becomes the next step's input — so dispatching
-        sees the cumulative result.
+        rule matches. Each step's <em>ordinal</em> sets the execution order
+        (lower runs first); each step's output becomes the next step's input.
     </p>
 
     {% if chain_steps %}
-    <table class="dense">
-        <thead><tr>
-            <th>Ord</th><th>Module</th><th>Kind</th><th>Enabled</th>
-            <th>Config override</th><th></th>
-        </tr></thead>
-        <tbody>
-            {% for s in chain_steps %}
-            <tr>
-                <td>{{ s.ordinal }}</td>
-                <td><a href="/ui/processing-modules/{{ s.module_id }}">{{ s.module_name }}</a></td>
-                <td><code>{{ s.module_kind }}</code></td>
-                <td>{{ "yes" if s.module_enabled else "no" }}</td>
-                <td>
-                    {% if s.override_pretty %}
-                    <details>
-                        <summary>{{ s.config_override.keys() | list | length }} key(s)</summary>
-                        <pre style="margin-top: 0.5rem; font-size: 0.8rem;">{{ s.override_pretty }}</pre>
-                    </details>
-                    {% else %}
-                        <small class="muted">— (uses module default)</small>
-                    {% endif %}
-                </td>
-                <td>
-                    <form method="post"
-                          action="/ui/rules/{{ rule.id }}/processing-chain/{{ s.id }}/delete"
-                          style="display: inline; margin: 0;"
-                          onsubmit="return confirm('Remove {{ s.module_name }} from this rule?');">
-                        <button type="submit" class="secondary outline"
-                                style="padding: 0.1rem 0.5rem; font-size: 0.85rem;">
-                            remove
-                        </button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th class="num shrink">Ord</th>
+                        <th>Module</th>
+                        <th class="shrink">Kind</th>
+                        <th class="shrink">Enabled</th>
+                        <th>Config override</th>
+                        <th class="shrink"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in chain_steps %}
+                    <tr>
+                        <td class="num">{{ s.ordinal }}</td>
+                        <td><a href="/ui/processing-modules/{{ s.module_id }}">{{ s.module_name }}</a></td>
+                        <td><code>{{ s.module_kind }}</code></td>
+                        <td>
+                            {% if s.module_enabled %}
+                                <span class="badge badge-ok">yes</span>
+                            {% else %}
+                                <span class="badge badge-muted">no</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if s.override_pretty %}
+                                <details>
+                                    <summary>{{ s.config_override.keys() | list | length }} key(s)</summary>
+                                    <pre style="margin-top: var(--sp-2); font-size: 0.8rem;">{{ s.override_pretty }}</pre>
+                                </details>
+                            {% else %}
+                                <small class="muted">— (uses module default)</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post"
+                                  action="/ui/rules/{{ rule.id }}/processing-chain/{{ s.id }}/delete"
+                                  style="display: inline; margin: 0;"
+                                  onsubmit="return confirm('Remove {{ s.module_name }} from this rule?');">
+                                <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
-        <p><em>No processing chain on this rule — matched studies dispatch
-            their original files unchanged.</em></p>
+        <p class="muted"><em>No processing chain on this rule — matched studies
+            dispatch their original files unchanged.</em></p>
     {% endif %}
 
     {% if available_modules %}
-    <details>
-        <summary>+ Add processing step</summary>
+    <details style="margin-top: var(--sp-4);">
+        <summary style="cursor: pointer; font-weight: 600; color: var(--color-brand);">
+            + Add processing step
+        </summary>
         <form method="post" action="/ui/rules/{{ rule.id }}/processing-chain"
-              style="margin-top: 0.5rem;">
-            <div class="grid">
-                <label>
-                    Module
+              style="margin-top: var(--sp-3);">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Module</label>
                     <select name="module_id" required>
                         {% for m in available_modules %}
                             <option value="{{ m.id }}">
@@ -236,40 +277,46 @@
                             </option>
                         {% endfor %}
                     </select>
-                </label>
-                <label>
-                    Ordinal
+                </div>
+                <div class="form-group">
+                    <label>Ordinal</label>
                     {# Default to len(chain_steps) so new steps land at the end. #}
                     <input type="number" name="ordinal" min="0" max="255"
                            value="{{ chain_steps | length }}">
-                </label>
+                </div>
             </div>
-            <label>
-                Config override (JSON object, optional)
+            <div class="form-group">
+                <label>Config override (JSON object, optional)</label>
                 <textarea name="config_override" rows="4"
                           placeholder='{"value": "NVRA"}  // overrides the module default'
-                          style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;"></textarea>
-            </label>
-            <button type="submit">Add step</button>
+                ></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Add step</button>
         </form>
     </details>
     {% else %}
-        <p><small class="muted">All registered modules are already in this rule's chain
-            (or none exist).
-            <a href="/ui/processing-modules">Browse modules →</a></small></p>
+        <p class="muted" style="margin-top: var(--sp-3);">
+            <small>All registered modules are already in this rule's chain
+                (or none exist).
+                <a href="/ui/processing-modules">Browse modules →</a></small>
+        </p>
     {% endif %}
-</section>
+</div>
 
 {# ---- Danger zone ---- #}
-<section style="margin-top: 3rem;">
+<div class="card" style="border-color: var(--color-err-soft);">
     <details>
-        <summary>Danger zone</summary>
+        <summary style="cursor: pointer; font-weight: 600; color: var(--color-err);">
+            Danger zone
+        </summary>
         <form method="post" action="/ui/rules/{{ rule.id }}/delete"
-              style="margin-top: 1rem;"
+              style="margin-top: var(--sp-3);"
               onsubmit="return confirm('Delete rule {{ rule.name }}? This cannot be undone.');">
-            <button type="submit" class="contrast outline">Delete this rule</button>
+            <button type="submit" class="btn btn-danger">
+                {{ icon("trash", 14) }} Delete this rule
+            </button>
         </form>
     </details>
-</section>
+</div>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+{# Unauth-only base layout: centered single-card on a dark New Lantern
+   chrome background. Used by login.html. #}
+{% from "_icons.html" import lantern_logo %}
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}nl-router{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml"
+          href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><radialGradient id='g' cx='50%25' cy='55%25' r='45%25'><stop offset='0%25' stop-color='%233EECD5'/><stop offset='100%25' stop-color='%230099FF'/></radialGradient></defs><path fill='none' stroke='%230099FF' stroke-width='1.5' stroke-linecap='round' d='M10 3h4M12 3v2'/><rect x='6' y='5' width='12' height='15' rx='2' fill='none' stroke='%230099FF' stroke-width='1.5'/><circle cx='12' cy='12.5' r='3.2' fill='url(%23g)'/><path d='M6.5 20h11' stroke='%230099FF' stroke-width='1.5' stroke-linecap='round'/></svg>">
+    <link rel="stylesheet" href="/ui/static/css/app.css">
+</head>
+<body>
+    <div class="login-shell">
+        <div class="login-card">
+            <div class="login-brand" style="color: var(--color-brand);">
+                {{ lantern_logo(28) }}
+                <span style="color: var(--color-text);">nl-router</span>
+            </div>
+            {% if flash_msg %}
+                <div class="flash flash-{{ flash_kind or 'ok' }}">{{ flash_msg }}</div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</body>
+</html>

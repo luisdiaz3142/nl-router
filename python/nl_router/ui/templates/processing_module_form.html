@@ -1,24 +1,33 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% set active = "modules" %}
 {% block title %}
-{% if mode == "create" %}Register module{% else %}{{ module.name }} — modules{% endif %}
+{% if mode == "create" %}Register module{% else %}{{ module.name }} — Modules{% endif %}
  — nl-router
 {% endblock %}
 
 {% macro field_error(name) %}
     {% if errors and errors[name] %}
-        <small class="field-error">{{ errors[name] }}</small>
+        <div class="field-error">{{ errors[name] }}</div>
     {% endif %}
 {% endmacro %}
 
 {% block content %}
-<header style="display: flex; align-items: center; gap: 1rem;">
-    <h1 style="margin: 0;">
-        {% if mode == "create" %}Register processing module{% else %}Edit module: {{ module.name }}{% endif %}
-    </h1>
-    <span style="flex: 1;"></span>
-    <a href="/ui/processing-modules">← back to modules</a>
-</header>
+<div class="page-header">
+    <div>
+        <h1>
+            {% if mode == "create" %}Register processing module
+            {% else %}Edit module
+            {% endif %}
+        </h1>
+        {% if mode == "edit" %}
+            <div class="subtitle"><code>{{ module.name }}</code></div>
+        {% endif %}
+    </div>
+    <div class="actions">
+        <a href="/ui/processing-modules" class="btn btn-ghost">← Back to modules</a>
+    </div>
+</div>
 
 {% if errors and errors.__form__ %}
     <div class="flash flash-err">{{ errors.__form__ }}</div>
@@ -27,102 +36,127 @@
 <form method="post"
       action="{% if mode == 'create' %}/ui/processing-modules{% else %}/ui/processing-modules/{{ module.id }}{% endif %}">
 
-    <label for="name">Name <small class="muted">(unique, human-readable)</small></label>
-    <input type="text" id="name" name="name" required maxlength="200"
-           value="{{ module.name }}"
-           aria-invalid="{{ 'true' if errors and errors.name else 'false' }}">
-    {{ field_error("name") }}
+    <div class="card">
+        <div class="form-group">
+            <label for="name">Name <span class="muted">(unique, human-readable)</span></label>
+            <input type="text" id="name" name="name" required maxlength="200"
+                   value="{{ module.name }}">
+            {{ field_error("name") }}
+        </div>
 
-    <label for="description">Description</label>
-    <input type="text" id="description" name="description"
-           value="{{ module.description or '' }}">
+        <div class="form-group">
+            <label for="description">Description</label>
+            <input type="text" id="description" name="description"
+                   value="{{ module.description or '' }}">
+        </div>
 
-    <label for="kind">Kind <small class="muted">
-        (selects the worker binary at
-        <code>/usr/libexec/nl-router/modules/&lt;kind&gt;</code> and the
-        <code>NL_ROUTER_MODULE_KIND</code> the worker filters
-        <code>processing_jobs</code> by)
-    </small></label>
-    <input type="text" id="kind" name="kind" required maxlength="200"
-           value="{{ module.kind }}"
-           {% if mode == "edit" %}readonly{% endif %}
-           aria-invalid="{{ 'true' if errors and errors.kind else 'false' }}">
-    {{ field_error("kind") }}
-    {% if mode == "edit" %}
-        <small class="muted">
-            Kind is read-only on edit — changing it would orphan in-flight
-            processing_jobs claimed for the old kind. Delete this module
-            and create a new one if you need a different kind.
-        </small>
-    {% endif %}
+        <div class="form-group">
+            <label for="kind">Kind</label>
+            <span class="help">
+                Selects the worker binary at
+                <code>/usr/libexec/nl-router/modules/&lt;kind&gt;</code> and the
+                <code>NL_ROUTER_MODULE_KIND</code> the worker filters
+                <code>processing_jobs</code> by.
+            </span>
+            <input type="text" id="kind" name="kind" required maxlength="200"
+                   value="{{ module.kind }}"
+                   {% if mode == "edit" %}readonly{% endif %}>
+            {{ field_error("kind") }}
+            {% if mode == "edit" %}
+                <span class="help">
+                    Kind is read-only on edit — changing it would orphan
+                    in-flight processing_jobs claimed for the old kind.
+                    Delete this module and create a new one if you need a
+                    different kind.
+                </span>
+            {% endif %}
+        </div>
 
-    <label style="display: flex; align-items: center; gap: 0.5rem;">
-        <input type="checkbox" name="enabled"
-               {% if module.enabled %}checked{% endif %}
-               style="width: auto;">
-        Enabled
-    </label>
+        <div class="form-group">
+            <label for="enabled" style="display: flex; align-items: center; gap: var(--sp-2);">
+                <input type="checkbox" name="enabled" id="enabled"
+                       {% if module.enabled %}checked{% endif %}
+                       style="width: auto;">
+                Enabled
+            </label>
+        </div>
 
-    <label for="config">Default config (JSON object)</label>
-    <small class="muted">
-        Module-level defaults. Each rule's <code>config_override</code>
-        is merged on top at <code>processing_jobs</code> insert time.
-    </small>
-    <textarea id="config" name="config" rows="8"
-              aria-invalid="{{ 'true' if errors and errors.config else 'false' }}"
-              style="font-family: var(--pico-font-family-monospace); font-size: 0.85rem;">{{ module.config }}</textarea>
-    {{ field_error("config") }}
+        <div class="form-group">
+            <label for="config">Default config (JSON object)</label>
+            <span class="help">
+                Module-level defaults. Each rule's <code>config_override</code>
+                is merged on top at <code>processing_jobs</code> insert time.
+            </span>
+            <textarea id="config" name="config" rows="8">{{ module.config }}</textarea>
+            {{ field_error("config") }}
+        </div>
 
-    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-        <button type="submit">
-            {% if mode == "create" %}Register module{% else %}Save changes{% endif %}
-        </button>
-        <a href="/ui/processing-modules" role="button" class="secondary">Cancel</a>
+        <div class="row" style="margin-top: var(--sp-2);">
+            <button type="submit" class="btn btn-primary">
+                {% if mode == "create" %}Register module{% else %}Save changes{% endif %}
+            </button>
+            <a href="/ui/processing-modules" class="btn btn-ghost">Cancel</a>
+        </div>
     </div>
 </form>
 
 {% if mode == "edit" %}
 
 {# ---- Used by which rules ---- #}
-<section style="margin-top: 3rem;">
-    <h3>Used by rules ({{ used_by | length if used_by else 0 }})</h3>
+<div class="card">
+    <h3 class="card-title">
+        Used by rules <span class="muted">({{ used_by | length if used_by else 0 }})</span>
+    </h3>
     {% if used_by %}
-    <table class="dense">
-        <thead><tr><th>Rule</th><th>Status</th><th>Ordinal</th><th>Override</th></tr></thead>
-        <tbody>
-            {% for u in used_by %}
-            <tr>
-                <td><a href="/ui/rules/{{ u.rule_id }}">{{ u.rule_name }}</a></td>
-                <td>
-                    <span class="pill pill-{{ 'ok' if u.rule_status == 'enabled' else 'muted' }}">
-                        {{ u.rule_status }}
-                    </span>
-                </td>
-                <td>{{ u.ordinal }}</td>
-                <td><small><code>{{ u.config_override or "—" }}</code></small></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-wrap">
+        <table class="table-data">
+            <thead>
+                <tr>
+                    <th>Rule</th>
+                    <th class="shrink">Status</th>
+                    <th class="num shrink">Ordinal</th>
+                    <th>Override</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in used_by %}
+                <tr>
+                    <td><a href="/ui/rules/{{ u.rule_id }}">{{ u.rule_name }}</a></td>
+                    <td>
+                        <span class="badge badge-{{ 'ok' if u.rule_status == 'enabled' else 'muted' }}">
+                            {{ u.rule_status }}
+                        </span>
+                    </td>
+                    <td class="num">{{ u.ordinal }}</td>
+                    <td><small><code>{{ u.config_override or "—" }}</code></small></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
-        <p><em>Not attached to any rules yet.</em></p>
+        <p class="muted"><em>Not attached to any rules yet.</em></p>
     {% endif %}
-</section>
+</div>
 
 {# ---- Danger zone ---- #}
-<section style="margin-top: 3rem;">
+<div class="card" style="border-color: var(--color-err-soft);">
     <details>
-        <summary>Danger zone</summary>
-        <p><small class="muted">
-            Modules attached to any rule cannot be deleted until they're
-            unbound from every rule (FK constraint on rule_processing_chain).
-        </small></p>
+        <summary style="cursor: pointer; font-weight: 600; color: var(--color-err);">
+            Danger zone
+        </summary>
+        <p class="muted" style="margin-top: var(--sp-3);">
+            <small>Modules attached to any rule cannot be deleted until
+                they're unbound from every rule (FK constraint on
+                rule_processing_chain).</small>
+        </p>
         <form method="post" action="/ui/processing-modules/{{ module.id }}/delete"
-              style="margin-top: 1rem;"
               onsubmit="return confirm('Delete module {{ module.name }}? This cannot be undone.');">
-            <button type="submit" class="contrast outline">Delete this module</button>
+            <button type="submit" class="btn btn-danger">
+                {{ icon("trash", 14) }} Delete this module
+            </button>
         </form>
     </details>
-</section>
+</div>
 {% endif %}
 {% endblock %}
