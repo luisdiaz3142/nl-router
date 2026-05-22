@@ -1,0 +1,18 @@
+{# Probe result fragment.
+
+   Rendered into the destinations_form.html result <div> by HTMX after
+   the "Test connection" button POSTs. Pure HTML — no behavior; the
+   operator clicks the button again for a fresh test. #}
+<div class="flash flash-{{ 'ok' if result.ok else 'err' }}"
+     style="margin-bottom: 0;">
+    <strong>
+        {% if result.ok %}✓{% else %}✗{% endif %}
+        {{ 'Connection OK' if result.ok else 'Probe failed' }}
+    </strong>
+    <span class="muted" style="margin-left: var(--sp-2);">
+        {{ result.kind }} · {{ result.elapsed_ms }} ms
+    </span>
+    <div style="margin-top: var(--sp-2); font-size: var(--fs-sm);">
+        {{ result.detail }}
+    </div>
+</div>

@@ -556,6 +556,16 @@ dl.kv dt {
 }
 dl.kv dd { margin: 0; }
 
+/* -------- 12.5. HTMX indicators -------------------------------------- */
+
+/* HTMX flips .htmx-request on the source element while a request is
+ * in flight. Anything tagged .htmx-indicator inside that element is
+ * shown for the duration. The default convention is opacity-based
+ * (no layout shift), which works well for inline status text. */
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease; }
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { opacity: 1; }
+
 /* -------- 13. Misc utilities ----------------------------------------- */
 
 .truncate {

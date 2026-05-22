@@ -8,10 +8,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
+from nl_router.api.audit import emit_audit
 from nl_router.api.auth import AuthContext
+from nl_router.api.probes import (
+    ProbeResult,
+    decrypt_credential_payload,
+    probe_destination,
+)
 from nl_router.db import pool
 from nl_router.ui.auth import ui_auth_required
-from nl_router.ui.common import render, set_flash
+from nl_router.ui.common import render, set_flash, templates
 
 
 router = APIRouter(prefix="/ui/destinations", tags=["ui"], include_in_schema=False)
@@ -303,6 +309,92 @@ async def update_destination(
 
 
 # ---- Delete ------------------------------------------------------------
+
+
+@router.post("/{did}/test", response_class=Response)
+async def test_destination(
+    did: int,
+    request: Request,
+    auth: Annotated[AuthContext, Depends(ui_auth_required)],
+):
+    """Run the per-kind probe and return an HTMX-friendly result panel.
+
+    Wraps the same probe logic as the JSON API endpoint but renders a
+    small HTML fragment the destinations_form.html button can swap into
+    its result `<div>`. We emit the audit row inline so the test counts
+    in both the API path and this UI path.
+    """
+    with pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.id, d.name, d.kind, d.config, d.credential_id,
+                   c.enc_version, c.nonce, c.ciphertext
+              FROM destinations d
+              LEFT JOIN credentials c ON c.id = d.credential_id
+             WHERE d.id = %s
+            """,
+            (did,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(404, "destination not found")
+
+        credential = None
+        if row["credential_id"] is not None and row["ciphertext"] is not None:
+            try:
+                credential = decrypt_credential_payload(
+                    enc_version=row["enc_version"],
+                    nonce=bytes(row["nonce"]),
+                    ciphertext=bytes(row["ciphertext"]),
+                )
+            except Exception as e:                              # noqa: BLE001
+                result = ProbeResult(
+                    ok=False,
+                    detail=f"credential decrypt failed: {e}",
+                    elapsed_ms=0,
+                    kind=row["kind"],
+                )
+                _audit_test(conn, auth, request, did, row, result)
+                return _render_probe(request, result)
+
+        result = probe_destination(
+            kind=row["kind"],
+            config=row["config"] or {},
+            credential=credential,
+        )
+        _audit_test(conn, auth, request, did, row, result)
+        return _render_probe(request, result)
+
+
+def _render_probe(request: Request, result: ProbeResult) -> Response:
+    return templates.TemplateResponse(
+        request, "_destination_test_result.html",
+        {"result": result},
+    )
+
+
+def _audit_test(conn, auth: AuthContext, request: Request, did: int,
+                row: dict, result: ProbeResult) -> None:
+    """Same shape as the API path's audit so dashboards / filters
+    don't have to distinguish "tested via API" from "tested via UI."
+    """
+    emit_audit(
+        conn,
+        actor=auth,
+        action="destination.test",
+        resource_kind="destination",
+        resource_id=str(did),
+        diff={
+            "name":       row["name"],
+            "kind":       row["kind"],
+            "ok":         result.ok,
+            "detail":     result.detail,
+            "elapsed_ms": result.elapsed_ms,
+        },
+        client_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    conn.commit()
 
 
 @router.post("/{did}/delete", response_class=Response)

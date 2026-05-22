@@ -17,6 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from nl_router.api.audit import emit_audit
 from nl_router.api.auth import AuthContext, require
 from nl_router.api.models import DestinationCreate, DestinationOut, DestinationUpdate
+from nl_router.api.probes import (
+    ProbeResult,
+    decrypt_credential_payload,
+    probe_destination,
+)
 from nl_router.db import pool
 
 router = APIRouter(prefix="/destinations", tags=["destinations"])
@@ -232,3 +237,105 @@ def _jsonify(d: dict[str, Any]) -> dict[str, Any]:
         else:
             out[k] = str(v)
     return out
+
+
+# ---- Test connection -----------------------------------------------------
+
+
+@router.post("/{dest_id}/test")
+def test_destination(
+    dest_id: int,
+    req: Request,
+    ctx: AuthContext = Depends(require("destinations.test")),
+) -> dict[str, Any]:
+    """Run the per-kind probe against this destination and return the
+    result. The probe is read-only — it never writes real DICOM, posts
+    real webhooks, or PUTs real objects. See nl_router.api.probes for
+    the per-kind semantics.
+
+    A `destination.test` admin_audit row is emitted on every call (pass
+    or fail). The diff captures the result so the audit page shows what
+    happened without re-running the probe.
+    """
+    with pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.id, d.name, d.kind, d.config, d.credential_id,
+                   c.enc_version, c.nonce, c.ciphertext
+              FROM destinations d
+              LEFT JOIN credentials c ON c.id = d.credential_id
+             WHERE d.id = %s
+            """,
+            (dest_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="destination not found"
+            )
+
+        # Decrypt the credential if the destination references one. A
+        # decrypt failure becomes a probe failure — the operator sees
+        # "credential decrypt failed" instead of a 500.
+        credential = None
+        if row["credential_id"] is not None and row["ciphertext"] is not None:
+            try:
+                credential = decrypt_credential_payload(
+                    enc_version=row["enc_version"],
+                    nonce=bytes(row["nonce"]),
+                    ciphertext=bytes(row["ciphertext"]),
+                )
+            except Exception as e:                              # noqa: BLE001
+                result = ProbeResult(
+                    ok=False,
+                    detail=f"credential decrypt failed: {e}",
+                    elapsed_ms=0,
+                    kind=row["kind"],
+                )
+                _audit_probe(conn, ctx, req, dest_id, row, result)
+                return _serialize(result)
+
+        result = probe_destination(
+            kind=row["kind"],
+            config=row["config"] or {},
+            credential=credential,
+        )
+        _audit_probe(conn, ctx, req, dest_id, row, result)
+        return _serialize(result)
+
+
+def _serialize(r: ProbeResult) -> dict[str, Any]:
+    return {
+        "ok":         r.ok,
+        "detail":     r.detail,
+        "elapsed_ms": r.elapsed_ms,
+        "kind":       r.kind,
+    }
+
+
+def _audit_probe(
+    conn, ctx: AuthContext, req: Request, dest_id: int,
+    row: dict[str, Any], result: ProbeResult,
+) -> None:
+    """Persist one admin_audit row for the probe. Distinct action name
+    from .create/.update/.delete so operators can filter the audit page
+    by `destination.test` to see "did anyone test this destination
+    before the last failure?"
+    """
+    emit_audit(
+        conn,
+        actor=ctx,
+        action="destination.test",
+        resource_kind="destination",
+        resource_id=str(dest_id),
+        diff={
+            "name":       row["name"],
+            "kind":       row["kind"],
+            "ok":         result.ok,
+            "detail":     result.detail,
+            "elapsed_ms": result.elapsed_ms,
+        },
+        client_ip=_client_ip(req),
+        user_agent=_ua(req),
+    )
+    conn.commit()
