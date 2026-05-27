@@ -23,8 +23,12 @@ ReceiverMetrics ReceiverMetrics::register_all(nlr::metrics::Registry& r) {
     return ReceiverMetrics{
         .associations_total = r.counter(
             "nl_receiver_associations_total",
-            "Total inbound DICOM associations, by acceptance result and peer transport",
-            {"result", "peer_type"}),
+            "Total inbound DICOM associations, by acceptance result, peer "
+            "transport, and calling AET. The calling_aet label is the "
+            "primary axis operators use to answer 'which scanner is being "
+            "rejected / connecting most.' Cardinality is bounded by the "
+            "real-world AE-Title set at the site (typically < 50).",
+            {"result", "peer_type", "calling_aet"}),
         .associations_active = r.gauge(
             "nl_receiver_associations_active",
             "Number of currently active DICOM associations"),

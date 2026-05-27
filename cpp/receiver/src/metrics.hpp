@@ -5,7 +5,7 @@
 // the receiver just touches the typed handles.
 //
 // Catalog (per design plan):
-//   nl_receiver_associations_total{result,peer_type}       counter
+//   nl_receiver_associations_total{result,peer_type,calling_aet} counter
 //   nl_receiver_associations_active                          gauge
 //   nl_receiver_workers_busy                                 gauge
 //   nl_receiver_workers_total                                gauge
@@ -29,7 +29,7 @@
 namespace nlr {
 
 struct ReceiverMetrics {
-    nlr::metrics::CounterFamily&   associations_total;       // {result}
+    nlr::metrics::CounterFamily&   associations_total;       // {result, peer_type, calling_aet}
     nlr::metrics::GaugeFamily&     associations_active;
     nlr::metrics::GaugeFamily&     workers_busy;
     nlr::metrics::GaugeFamily&     workers_total;

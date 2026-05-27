@@ -90,7 +90,13 @@ void AssociationHandler::notifyAssociationRequest(
             "called_aet",  called,
             "peer",        peer);
 
-        metrics().associations_total.labels({"rejected_disk_full", peer_type()}).inc();
+        // calling is the negotiated AE-Title from the A-ASSOCIATE-RQ; we
+        // capture it for the metric even though we're about to reject, so
+        // dashboards can show "which scanner is hitting disk-full
+        // rejections." The local member calling_aet_ isn't populated yet
+        // at this point in the lifecycle, so use the locally-extracted
+        // string above.
+        metrics().associations_total.labels({"rejected_disk_full", peer_type(), calling}).inc();
         desired_action = DCMSCP_ACTION_REFUSE_ASSOCIATION;
         return;
     }
@@ -189,7 +195,7 @@ void AssociationHandler::snapshot_network_context_() {
     // because that hook isn't cleanly overridable in DCMTK 3.6.x; reaching
     // handleIncomingCommand means negotiation completed and the peer is
     // talking DIMSE, which is the operational definition of "accepted."
-    metrics().associations_total.labels({"accepted", peer_type()}).inc();
+    metrics().associations_total.labels({"accepted", peer_type(), calling_aet_}).inc();
     metrics().associations_active.self().inc();
     metrics().workers_busy.self().inc();
 
