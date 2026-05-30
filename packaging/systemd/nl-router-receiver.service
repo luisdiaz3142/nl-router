@@ -9,8 +9,19 @@ Type=simple
 User=nl-router
 Group=nl-router
 
-# Bootstrap config — everything else is sourced from /etc/nl-router/config.toml
-# via NL_ROUTER_CONFIG, which the binary reads to construct its env.
+# Bootstrap config.
+#
+# /etc/nl-router/env is the shared file `nl-router init` generates from
+# config.toml — it carries NL_ROUTER_SERVER_ID, NL_ROUTER_DATABASE_URL,
+# and NL_ROUTER_LOG_LEVEL. /etc/nl-router/receiver.env is the optional
+# per-service override file operators can hand-edit for receiver-only
+# tuning (listen port, association timeout, etc.). Later entries
+# override earlier ones, so the per-service file wins on conflict.
+#
+# Both files have leading `-` so the unit doesn't fail if the operator
+# hasn't run `nl-router init` yet (the binary itself errors with a
+# clear "required env var not set" message in that case).
+EnvironmentFile=-/etc/nl-router/env
 EnvironmentFile=-/etc/nl-router/receiver.env
 ExecStart=/usr/bin/nl-receiver
 

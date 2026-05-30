@@ -84,6 +84,14 @@ install -m0755 cpp/build-pkg/router/nl-route        "${STAGING}/usr/bin/"
 install -m0755 cpp/build-pkg/dispatcher/nl-dispatch "${STAGING}/usr/bin/"
 install -m0755 cpp/build-pkg/cleaner/nl-clean       "${STAGING}/usr/bin/"
 
+# DSL predicate-validation helper (M22). Tiny CLI wrapper around the
+# router's parser; the management API shells out to it at rule
+# create/update time so syntactically invalid predicates fail at
+# HTTP-POST time instead of silently in the router's 15-second
+# rule_cache_refresh loop.
+install -m0755 cpp/build-pkg/common/dsl/nl-dsl-validate \
+    "${STAGING}/usr/libexec/nl-router/nl-dsl-validate"
+
 # Module binaries — staged under their DB-kind name (no nl-mod- prefix).
 # Each binary's filename here MUST match the processing_modules.kind value
 # the operator references from rule_processing_chain; that's the path the

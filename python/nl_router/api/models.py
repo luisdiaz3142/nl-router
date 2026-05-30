@@ -7,16 +7,18 @@ possible, not introduce a separate domain layer.
 
 from __future__ import annotations
 
+import logging
+import os
+import shutil
+import subprocess
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-# Predicate preflight — a cheap structural check we run at the API
-# layer so obviously broken predicates never reach the rules table.
-# The router's PEGTL parser is the source of truth for "valid"; this
-# only catches three classes of malformed input:
+# Predicate preflight — cheap structural checks plus a real DSL parse via
+# the shipped `nl-dsl-validate` helper. Structural checks catch:
 #
 #   1. Length-bomb DoS    — cap at 8 KiB. Real predicates are < 1 KiB.
 #   2. Depth-bomb DoS     — cap paren nesting at 32. PEGTL is
@@ -24,13 +26,65 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 #                           unbounded depth.
 #   3. Obvious typos      — unbalanced parens or quotes.
 #
-# Full semantic validation (function/method names, type compatibility)
-# happens at the router on cache refresh and surfaces in the router log;
-# a future enhancement is to subprocess the router's validate-only mode
-# from this endpoint for a true server-side parse.
+# Then we shell out to nl-dsl-validate for a real parse so syntactic
+# errors fail at HTTP-POST time instead of silently in the router log.
+# Pre-M22 only the structural checks ran; an invalid predicate saved
+# fine and the operator only learned about it the next time they sent
+# a study and nothing routed.
 
 _MAX_PREDICATE_LEN   = 8 * 1024     # bytes
 _MAX_PREDICATE_DEPTH = 32           # max nested parentheses
+
+log = logging.getLogger("nl_router.api.models")
+
+
+def _dsl_validate_binary() -> str | None:
+    """Return the path to nl-dsl-validate, or None if not installed.
+
+    Honor NL_ROUTER_DSL_VALIDATE_BIN for dev overrides (point at a
+    locally-built copy). In the .deb the binary lands at
+    /usr/libexec/nl-router/nl-dsl-validate.
+    """
+    override = os.environ.get("NL_ROUTER_DSL_VALIDATE_BIN")
+    if override:
+        return override if os.path.isfile(override) else None
+    canonical = "/usr/libexec/nl-router/nl-dsl-validate"
+    if os.path.isfile(canonical):
+        return canonical
+    # Last-resort PATH lookup so developers running uvicorn directly
+    # can prepend cpp/build/.../ to PATH and still get the check.
+    return shutil.which("nl-dsl-validate")
+
+
+def _dsl_parse_check(predicate: str) -> None:
+    """Shell out to nl-dsl-validate; raise ValueError on parse failure.
+
+    Returns silently if the binary isn't installed — keeps dev setups
+    where the API runs without the C++ build available from crashing.
+    The router-side cache refresh remains the second line of defense in
+    that mode, same as it was pre-M22. In production .deb installs the
+    binary is always present, so this check is authoritative.
+    """
+    binary = _dsl_validate_binary()
+    if binary is None:
+        log.warning("dsl_validate.skipped no_binary")
+        return
+    try:
+        result = subprocess.run(
+            [binary],
+            input=predicate.encode("utf-8"),
+            capture_output=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        raise ValueError("predicate validation timed out") from None
+    if result.returncode == 0:
+        return
+    # Surface the helper's stderr verbatim — the parser writes one-line
+    # messages with embedded line/column info ("syntax error (at line N,
+    # column M)") which is exactly the form an operator wants to see.
+    msg = result.stderr.decode("utf-8", errors="replace").strip()
+    raise ValueError(msg or "predicate failed to parse (no detail)")
 
 
 def _validate_predicate_text(s: str) -> str:
@@ -72,6 +126,12 @@ def _validate_predicate_text(s: str) -> str:
             f"predicate nesting depth {max_depth} exceeds "
             f"limit {_MAX_PREDICATE_DEPTH}"
         )
+
+    # Real DSL parse via the shipped helper binary. Structural checks
+    # above only catch obvious junk; this is what catches "true" instead
+    # of "True", "tags.Modality ==" with a missing RHS, and similar.
+    _dsl_parse_check(s)
+
     return s
 
 

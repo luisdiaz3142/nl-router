@@ -164,6 +164,21 @@ template <> struct action<grammar::kw_false> {
         s.push(make_expr(LiteralNode{ Value{false} }, line_of(in), col_of(in)));
     }
 };
+// Lowercase aliases — same action, same Value. The grammar accepts both
+// forms so operators can write `predicate: true` instead of having to
+// know it's Python-style `True`.
+template <> struct action<grammar::kw_true_lc> {
+    template <class Input>
+    static void apply(const Input& in, State& s) {
+        s.push(make_expr(LiteralNode{ Value{true} }, line_of(in), col_of(in)));
+    }
+};
+template <> struct action<grammar::kw_false_lc> {
+    template <class Input>
+    static void apply(const Input& in, State& s) {
+        s.push(make_expr(LiteralNode{ Value{false} }, line_of(in), col_of(in)));
+    }
+};
 
 // -- field access --
 

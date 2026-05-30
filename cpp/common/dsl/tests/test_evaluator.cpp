@@ -30,6 +30,16 @@ TEST_CASE("Literal-only predicates", "[eval][literals]") {
     Context c;
     REQUIRE(evaluate("True", c));
     REQUIRE_FALSE(evaluate("False", c));
+    // Lowercase aliases — M22 added these because operators kept typing
+    // `true` / `false` (C / JS / Go habit) and the prior grammar only
+    // accepted the Python-style capitalized form. Both must work and
+    // produce identical results.
+    REQUIRE(evaluate("true", c));
+    REQUIRE_FALSE(evaluate("false", c));
+    REQUIRE(evaluate("not false", c));
+    REQUIRE_FALSE(evaluate("not true", c));
+    REQUIRE(evaluate("true and True", c));
+    REQUIRE(evaluate("False or true", c));
     REQUIRE(evaluate("1 == 1", c));
     REQUIRE_FALSE(evaluate("1 == 2", c));
     REQUIRE(evaluate("\"a\" == \"a\"", c));

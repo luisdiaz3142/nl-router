@@ -15,7 +15,7 @@
 //     literal     ::= number | string | bool
 //     number      ::= int | float
 //     string      ::= "..." | '...'
-//     bool        ::= "True" | "False"
+//     bool        ::= "True" | "False" | "true" | "false"
 //     tuple       ::= "(" expr ("," expr)* ","? ")"     # parens with 2+ or trailing comma
 //                   | "(" ")"                            # empty tuple
 //     field       ::= "tags" "." ident
@@ -53,8 +53,16 @@ struct kw_and   : keyword<'a','n','d'> {};
 struct kw_or    : keyword<'o','r'>     {};
 struct kw_not   : keyword<'n','o','t'> {};
 struct kw_in    : keyword<'i','n'>     {};
-struct kw_true  : keyword<'T','r','u','e'> {};
-struct kw_false : keyword<'F','a','l','s','e'> {};
+// Both the Python-style capitalized form (True/False — dicomdiablo parity
+// since dicomdiablo's predicates were eval'd by Python) and the lowercase
+// form most other languages use are accepted. Pre-M22 the grammar only
+// took the capitalized form, which surprised operators porting a rule
+// like `tags.Modality == "CT" and true` from C/JS habits. Accept both,
+// keep True/False as the canonical / preferred form in docs.
+struct kw_true   : keyword<'T','r','u','e'> {};
+struct kw_false  : keyword<'F','a','l','s','e'> {};
+struct kw_true_lc  : keyword<'t','r','u','e'> {};
+struct kw_false_lc : keyword<'f','a','l','s','e'> {};
 
 // Identifiers (used for field names, method names, function names).
 // Reserved keywords are excluded — handled by ordering in the grammar rather
@@ -95,8 +103,9 @@ struct double_quoted : pegtl::if_must<pegtl::one<'"'>,  pegtl::star<dq_char>, pe
 struct single_quoted : pegtl::if_must<pegtl::one<'\''>, pegtl::star<sq_char>, pegtl::one<'\''>> {};
 struct string_literal : pegtl::sor<double_quoted, single_quoted> {};
 
-// Boolean literal.
-struct bool_literal : pegtl::sor<kw_true, kw_false> {};
+// Boolean literal — accepts both Python-style (True/False) and the
+// lowercase form most other languages use.
+struct bool_literal : pegtl::sor<kw_true, kw_false, kw_true_lc, kw_false_lc> {};
 
 // ---- Field access -------------------------------------------------------
 

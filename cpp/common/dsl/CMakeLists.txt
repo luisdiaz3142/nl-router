@@ -39,6 +39,14 @@ target_include_directories(nl_router_dsl PRIVATE
 )
 target_link_libraries(nl_router_dsl PRIVATE taocpp::pegtl)
 
+# ---- nl-dsl-validate helper binary --------------------------------------
+# Tiny CLI wrapper around dsl::parse(). Shell-out target for the
+# management API's rule create/update path so syntactically invalid
+# predicates fail at HTTP-POST time instead of silently in the router log
+# every 15 seconds. Ships in the .deb at /usr/libexec/nl-router/.
+add_executable(nl-dsl-validate tools/dsl_validate.cpp)
+target_link_libraries(nl-dsl-validate PRIVATE nl_router_dsl)
+
 # ---- Tests --------------------------------------------------------------
 if(NL_ROUTER_BUILD_TESTS)
     add_subdirectory(tests)
