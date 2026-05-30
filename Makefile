@@ -15,6 +15,7 @@ MIGRATIONS_DIR := migrations
         db-up db-down db-reset \
         dev dev-up dev-down \
         monitoring-up monitoring-down monitoring-logs \
+        test-py \
         psql clean
 
 help:
@@ -31,6 +32,7 @@ help:
 	@echo "  make monitoring-up   Start Prometheus + Grafana (see monitoring/README.md)"
 	@echo "  make monitoring-down Stop the monitoring stack (keeps volumes)"
 	@echo "  make monitoring-logs Tail Prometheus + Grafana logs"
+	@echo "  make test-py         Run the Python test suite (pytest)"
 
 # ---- Migrations -----------------------------------------------------------
 
@@ -91,6 +93,19 @@ monitoring-down:
 
 monitoring-logs:
 	cd monitoring && docker compose logs -f --tail=50
+
+# ---- Python tests --------------------------------------------------------
+# Runs the pytest suite under python/tests/. The DSL-shellout tests
+# auto-skip if cpp/build/common/dsl/nl-dsl-validate doesn't exist, so
+# running this without a C++ build is fine — you'll just see those few
+# cases as `s` (skipped).
+#
+# Override the Python via PY= if you don't want the local .venv,
+# e.g. `make test-py PY=python3.12`.
+PY ?= .venv/bin/python
+
+test-py:
+	$(PY) -m pytest python/tests/ $(PYTEST_ARGS)
 
 # ---- Utilities ------------------------------------------------------------
 
