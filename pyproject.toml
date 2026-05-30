@@ -103,4 +103,16 @@ warn_redundant_casts = true
 minversion = "8.0"
 testpaths = ["python/tests"]
 asyncio_mode = "auto"
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Starlette >= 0.41 emits this when its TestClient is imported
+    # with the original `httpx` package instead of the `httpx2`
+    # successor. We can't act on it (httpx2 isn't a drop-in we want
+    # to depend on yet) and it's purely an upstream-rename signal.
+    # Message-pattern filter rather than class — older Starlette
+    # versions (still on developer Macs / pinned dev venvs) don't
+    # have StarletteDeprecationWarning defined, and pytest tries to
+    # import the class at config-load time. Matching the message
+    # text avoids that import.
+    'ignore:Using `httpx` with `starlette\.testclient` is deprecated:',
+]
