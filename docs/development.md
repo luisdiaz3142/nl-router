@@ -38,10 +38,12 @@ ctest --test-dir cpp/build            # C++ tests, also ~1 second
 | Python destination probes | `python/tests/test_probes.py` | shape + dispatch table |
 | Python UI helpers | `python/tests/test_common.py` | pill mapping, flash cookie |
 | Python SSE encoder | `python/tests/test_routes_sse.py` | framing, newline handling |
+| Python rule CRUD integration | `python/tests/test_integration_rules.py` | create / list / get / update / delete / auth / audit, all against a real Postgres |
 
-40+ Python tests, 37 C++ tests. Anything that touches Postgres is **not**
-in this set yet — DB-touching integration tests need an ephemeral test
-DB fixture (deferred to a follow-up slice).
+60+ Python tests, 37 C++ tests. The integration tests in
+`test_integration_rules.py` exercise the full FastAPI route →
+Pydantic → SQL → audit chain and auto-skip when no Postgres is
+reachable, so they don't gate the unit tests on a fresh checkout.
 
 ### Skipped tests
 
@@ -59,6 +61,32 @@ You can also point at a built copy elsewhere:
 ```sh
 NL_ROUTER_DSL_VALIDATE_BIN=/path/to/nl-dsl-validate make test-py
 ```
+
+### Running integration tests locally
+
+`test_integration_rules.py` (and any future `test_integration_*.py`
+files) exercise the route handlers against a real Postgres. They
+auto-skip when no DB is reachable, so the unit-test suite stays
+green on a fresh checkout. To run them locally:
+
+```sh
+make db-up        # docker-compose Postgres
+make migrate      # apply schema
+make test-py      # integration tests now run (look for test_integration_*)
+```
+
+If your dev DB is on a non-default DSN (custom port, hosted Postgres),
+override via env:
+
+```sh
+NL_ROUTER_TEST_DSN=postgres://user:pass@host:5433/db make test-py
+```
+
+`make test-py PYTEST_ARGS="python/tests/test_integration_rules.py"` to
+run just the integration set. The fixtures TRUNCATE the mutable
+tables before each test, so order doesn't matter and a crashed test
+doesn't leak state — but seed tables (`processing_modules`,
+`system_config`) are preserved since migrations populate them.
 
 ## Filtering / debugging
 

@@ -7,6 +7,7 @@ redacted upstream so they never appear here.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from typing import Any
 
@@ -14,6 +15,25 @@ from psycopg import Connection
 
 from nl_router.api.auth import AuthContext
 from nl_router.api.metrics import AUDIT_EVENTS_TOTAL
+
+
+def _coerce_inet(value: str | None) -> str | None:
+    """Return `value` if it parses as an IPv4/IPv6 address, else None.
+
+    admin_audit.client_ip is a Postgres INET column; passing a non-IP
+    string (e.g. "testclient" from FastAPI's TestClient, or a malformed
+    X-Forwarded-For header from a misbehaving reverse proxy) makes the
+    INSERT fail with `invalid input syntax for type inet`. We coerce
+    once at the boundary: drop the value if it doesn't parse. The
+    audit row still lands, just without the client_ip.
+    """
+    if value is None:
+        return None
+    try:
+        ipaddress.ip_address(value)
+        return value
+    except ValueError:
+        return None
 
 
 def emit_audit(
@@ -46,7 +66,7 @@ def emit_audit(
                 resource_kind,
                 resource_id,
                 json.dumps(diff) if diff is not None else None,
-                client_ip,
+                _coerce_inet(client_ip),
                 user_agent,
             ),
         )

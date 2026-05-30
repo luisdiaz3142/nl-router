@@ -50,6 +50,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # Sidecar Postgres for the M32 DB-integration tests. GitHub Actions
+    # exposes services on the host network with the service name as
+    # hostname and the published port as 5432. We use the same DSN
+    # shape as the local docker-compose dev DB so the integration test
+    # fixtures don't need to special-case CI vs local.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER:     nl_router
+          POSTGRES_PASSWORD: nl_router
+          POSTGRES_DB:       nl_router
+        ports:
+          - 5432:5432
+        # Standard healthcheck — the workflow waits for `accepting
+        # connections` before proceeding to test setup.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -105,11 +127,33 @@ jobs:
         working-directory: cpp/build
         run: ctest --output-on-failure
 
+      # ---- Apply migrations to the sidecar Postgres -----------------
+      # Lets the M32 integration tests find a populated schema. We
+      # download golang-migrate fresh (small static Go binary, ~10 MB);
+      # the .deb ships its own copy at /usr/bin/nl-router-migrate but
+      # that's only present after install, which doesn't happen in the
+      # test job.
+      - name: Install golang-migrate
+        run: |
+          curl -sL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+              | tar -xz -C /tmp migrate
+          sudo mv /tmp/migrate /usr/local/bin/migrate
+
+      - name: Apply migrations
+        env:
+          # Same DSN shape the local dev DB uses; sidecar is at localhost.
+          DATABASE_URL: postgres://nl_router:nl_router@localhost:5432/nl_router?sslmode=disable
+        run: |
+          migrate -path migrations -database "$DATABASE_URL" up
+
       - name: Python tests (pytest)
         env:
           # Point pytest at the freshly-built helper so the DSL parse
           # tests don't auto-skip.
           NL_ROUTER_DSL_VALIDATE_BIN: ${{ github.workspace }}/cpp/build/common/dsl/nl-dsl-validate
+          # And at the sidecar Postgres so the M32 integration tests
+          # exercise the real DB path instead of auto-skipping.
+          NL_ROUTER_TEST_DSN: postgres://nl_router:nl_router@localhost:5432/nl_router?sslmode=disable
         run: .venv/bin/pytest python/tests/ -v
 
   # ------------------------------------------------------------------ #
