@@ -1,0 +1,144 @@
+# nl-router CI — build, test, package.
+#
+# Two jobs that run in parallel on every push to main and every PR:
+#
+#   test     C++ build + ctest + Python pytest against the host's
+#            apt-installed DCMTK 3.6.7. Fast (~5 min). The packaging
+#            build still uses static-linked DCMTK 3.6.9 (independent
+#            path), so this isn't a perfect mirror of production —
+#            but the API contract is identical and unit tests don't
+#            need the static build.
+#
+#   package  Docker build of the .deb via packaging/Dockerfile.build,
+#            then packaging/scripts/check-deb-contents.sh to assert
+#            every required file actually shipped. Slower (~15 min
+#            cold; first invocation compiles DCMTK from source inside
+#            the build container). Uploads the .deb as a workflow
+#            artifact (14-day retention) so operators can grab it
+#            from any green run without rebuilding locally.
+#
+# Both jobs run on push to main and on every pull request. CI failure
+# blocks merge (configure the protection rule manually in repo
+# settings if you want enforcement).
+#
+# Lessons from the M27 hotfix that motivated this workflow:
+#   * The .deb manifest got out of sync with the build pipeline. A
+#     dpkg-deb -c check would have caught it before merge.
+#   * "Tests pass locally" was unreliable because dev venvs had
+#     transitive deps that the production install set didn't. CI
+#     installing only declared deps catches this class of bug.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel redundant runs when someone force-pushes to a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ------------------------------------------------------------------ #
+  test:
+    name: build & test (host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- Python ---------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python deps
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          # Install with api + dev extras so every import the test
+          # suite touches resolves. Editable install lets tests find
+          # the source under python/nl_router/.
+          .venv/bin/pip install -e '.[api,dev]'
+
+      # ---- C++ ------------------------------------------------------
+      - name: Install C++ build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libpq-dev libssl-dev zlib1g-dev \
+            nlohmann-json3-dev libcurl4-openssl-dev \
+            libdcmtk-dev
+
+      - name: Configure CMake
+        # NL_ROUTER_STATIC_DCMTK=OFF: link against system libdcmtk for
+        # tests. The packaging build still uses static link (see the
+        # package job below) — independent paths.
+        run: |
+          cmake -S cpp -B cpp/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DNL_ROUTER_BUILD_TESTS=ON \
+            -DNL_ROUTER_STATIC_DCMTK=OFF
+
+      - name: Build C++
+        run: cmake --build cpp/build --parallel
+
+      - name: C++ tests (ctest)
+        working-directory: cpp/build
+        run: ctest --output-on-failure
+
+      - name: Python tests (pytest)
+        env:
+          # Point pytest at the freshly-built helper so the DSL parse
+          # tests don't auto-skip.
+          NL_ROUTER_DSL_VALIDATE_BIN: ${{ github.workspace }}/cpp/build/common/dsl/nl-dsl-validate
+        run: .venv/bin/pytest python/tests/ -v
+
+  # ------------------------------------------------------------------ #
+  package:
+    name: build .deb + manifest check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        # Ensures buildx is available; GitHub-hosted runners already
+        # have a recent Docker, but explicit setup is robust.
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the .deb
+        # build-all.sh does the whole pipeline:
+        #   1. docker buildx build the Dockerfile.build image (slow
+        #      on cold runs; DCMTK compiles from source inside).
+        #   2. docker run packaging/build.sh inside the container,
+        #      which produces packaging/dist/nl-router_*.deb.
+        # GitHub-hosted runners are amd64; we don't bother with arm64
+        # in CI yet (separate job + runner would be needed).
+        run: ARCHES=amd64 packaging/build-all.sh
+
+      - name: Verify .deb contents
+        # The test that catches the M27-hotfix bug class: a file
+        # built and staged but missing from nfpm.yaml.
+        run: |
+          packaging/scripts/check-deb-contents.sh \
+            packaging/dist/nl-router_*.deb
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nl-router-deb-amd64
+          path: packaging/dist/nl-router_*.deb
+          retention-days: 14
+          if-no-files-found: error

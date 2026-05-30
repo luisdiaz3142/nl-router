@@ -1,5 +1,7 @@
 # nl-router
 
+[![build](../../actions/workflows/build.yml/badge.svg?branch=main)](../../actions/workflows/build.yml)
+
 A DICOM router loosely inspired by [mercure](https://mercure-imaging.org/) and
 [dicomdiablo](https://github.com/mercure-imaging/mercure) — re-architected for
 high-throughput receive, centralized configuration, and a multi-node deployment

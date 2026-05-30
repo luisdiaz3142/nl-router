@@ -106,6 +106,50 @@ no_binary`), and the router's cache refresh is the only DSL parse check.
 Mypy is `strict` per `pyproject.toml`. Ruff config is opinionated but
 forgiving (line length handled by formatter, not linter).
 
+## CI
+
+Every push to `main` and every pull request triggers
+[`.github/workflows/build.yml`](../.github/workflows/build.yml) on
+GitHub Actions:
+
+| Job | What it does | Typical runtime |
+|---|---|---|
+| `test` | C++ build + ctest + Python pytest. Uses Debian/Ubuntu apt DCMTK (not the static build from packaging) — faster, same API surface. | ~5 min |
+| `package` | Docker-built `.deb` via `packaging/Dockerfile.build`, then `packaging/scripts/check-deb-contents.sh` to verify every required file actually shipped. Uploads the `.deb` as a workflow artifact (14-day retention). | ~15 min cold, ~5 min warm |
+
+Both jobs run in parallel. CI failure does not auto-block merge —
+configure a branch protection rule in repo settings if you want
+that enforced.
+
+### Grabbing the .deb from a green CI run
+
+For any successful workflow run on `main`, the produced `.deb`
+is downloadable from the run page:
+
+1. GitHub repo → **Actions** → most recent green `build` run
+2. Scroll to **Artifacts** at the bottom
+3. Download **`nl-router-deb-amd64`**
+4. Unzip, then `sudo apt install ./nl-router_0.0.1_amd64.deb`
+
+This is the same artifact you'd build locally via
+`ARCHES=amd64 packaging/build-all.sh` — same build container,
+same nfpm manifest, same smoke-test gate.
+
+### Packaging smoke test
+
+`packaging/scripts/check-deb-contents.sh` asserts that every
+operator-critical path is present in a built `.deb`. Add a path
+when a new artifact is shipped (e.g. a new module binary, a new
+systemd unit). Run locally against a freshly-built `.deb`:
+
+```sh
+packaging/scripts/check-deb-contents.sh packaging/dist/nl-router_*.deb
+```
+
+Catches the bug class where a file is built and staged but not
+listed in `packaging/nfpm/nfpm.yaml` — the silent dropout that
+shipped from M22 to M27.
+
 ## Adding new tests
 
 - Pure unit tests go in `python/tests/test_<module>.py`. Don't open a
