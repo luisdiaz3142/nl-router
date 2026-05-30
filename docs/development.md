@@ -137,7 +137,15 @@ Idempotent — re-running produces the same end state.
 
 ### SSH through gcloud IAP / bastion hosts
 
-Set `NLR_SSH` and `NLR_SCP` env vars to wrap the underlying commands:
+If plain `ssh <host>` doesn't reach your VM (typical for GCP
+instances behind IAP), wrap the underlying commands with the
+`NLR_SSH` and `NLR_SCP` env vars.
+
+`NLR_SSH` is treated as a self-contained "ssh-to-the-right-host"
+prefix — the script doesn't append `$HOST` to it. `NLR_SCP` is
+used as-is and the script supplies `host:path` arguments to it.
+
+For gcloud IAP:
 
 ```sh
 NLR_SSH='gcloud compute ssh dicom-diablo --tunnel-through-iap --' \
@@ -145,9 +153,21 @@ NLR_SCP='gcloud compute scp --tunnel-through-iap' \
     make redeploy HOST=dicom-diablo
 ```
 
-(The `HOST=` argument becomes redundant when the SSH command
-already names the host, but the Makefile still requires a non-empty
-value.)
+Notes:
+
+- The trailing `--` in NLR_SSH is required — it tells gcloud that
+  the next arg is the remote command, not a gcloud flag.
+- `HOST=` is still passed because SCP uses `host:path` syntax;
+  it's the destination, not a flag.
+
+To save yourself from re-typing every time, add to your shell rc:
+
+```sh
+export NLR_SSH='gcloud compute ssh dicom-diablo --tunnel-through-iap --'
+export NLR_SCP='gcloud compute scp --tunnel-through-iap'
+```
+
+Then `make redeploy HOST=dicom-diablo` works directly.
 
 ### Caveats
 

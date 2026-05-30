@@ -12,10 +12,17 @@
 # remote installer. The remote installer (packaging/scripts/
 # remote-install.sh) handles the full apt + init + systemd cycle.
 #
-# Env overrides for SSH-via-proxy setups (gcloud IAP, bastion hosts):
+# Env overrides for SSH-via-proxy setups (gcloud IAP, bastion hosts).
+# The script invokes SSH as `$SSH_CMD <remote-command>` — i.e. SSH_CMD
+# is a *self-contained prefix* that already knows which host to reach.
+# That avoids the asymmetry between `ssh host cmd` (plain) and
+# `gcloud compute ssh INSTANCE --tunnel-through-iap -- cmd` (gcloud)
+# where the host placement and `--` separator differ.
 #
-#   NLR_SSH        command used for `ssh` (default: "ssh")
-#   NLR_SCP        command used for `scp` (default: "scp")
+#   NLR_SSH        complete "ssh-to-the-right-host" prefix.
+#                  Default: "ssh $HOST"
+#   NLR_SCP        scp command (host stays in the path arg here).
+#                  Default: "scp"
 #
 # Example for gcloud IAP:
 #
@@ -23,14 +30,16 @@
 #   NLR_SCP='gcloud compute scp --tunnel-through-iap' \
 #       make redeploy HOST=dicom-diablo
 #
-# (For gcloud-IAP, the HOST argument becomes redundant since it's
-# baked into the SSH command; pass any non-empty value to satisfy
-# the Makefile.)
+# Note: with NLR_SSH set, the HOST argument still names the destination
+# for SCP (which uses host:path syntax) but isn't appended to SSH (which
+# is already baked into the override).
 
 set -eu
 
 HOST="${1:?Usage: $0 <host>}"
-SSH_CMD="${NLR_SSH:-ssh}"
+# Default: plain `ssh <host> <cmd>`. With NLR_SSH overridden the
+# command is already self-contained ("...ssh dicom-diablo... --").
+SSH_CMD="${NLR_SSH:-ssh ${HOST}}"
 SCP_CMD="${NLR_SCP:-scp}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -80,8 +89,8 @@ step "running remote-install.sh on $HOST"
 # Path on the remote side: /tmp/<deb-name>. The remote script is also
 # at /tmp/ because we just scp'd it there. chmod first so we don't
 # require it to be executable on the remote FS.
-$SSH_CMD "$HOST" "chmod +x /tmp/remote-install.sh && \
-                   sudo /tmp/remote-install.sh /tmp/${DEB_BASE}"
+$SSH_CMD "chmod +x /tmp/remote-install.sh && \
+          sudo /tmp/remote-install.sh /tmp/${DEB_BASE}"
 
 step "redeploy complete"
 echo "    host:    $HOST"
