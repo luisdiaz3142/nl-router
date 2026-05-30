@@ -52,23 +52,29 @@ SA_EMAIL="nl-router-deploy@${PROJECT}.iam.gserviceaccount.com"
 ### 2. Grant the SA the roles it needs
 
 Minimum permissions to SSH into a VM via IAP, copy files, and run
-sudo commands:
+sudo commands. The `--condition=None` flag suppresses the
+interactive prompt that gcloud throws when your project already
+has conditional IAM bindings — we want each role here
+unconditional.
 
 ```sh
 # Talk to the Compute Engine API
 gcloud projects add-iam-policy-binding "$PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/compute.osLogin"
+    --role="roles/compute.osLogin" \
+    --condition=None
 
 # Tunnel through IAP
 gcloud projects add-iam-policy-binding "$PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/iap.tunnelResourceAccessor"
+    --role="roles/iap.tunnelResourceAccessor" \
+    --condition=None
 
 # Read instance metadata (gcloud needs this for compute ssh)
 gcloud projects add-iam-policy-binding "$PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/compute.viewer"
+    --role="roles/compute.viewer" \
+    --condition=None
 ```
 
 `roles/compute.osLogin` gives the SA a Linux user on the host via
@@ -80,8 +86,14 @@ comfortable with the SA having root on the host:
 ```sh
 gcloud projects add-iam-policy-binding "$PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/compute.osAdminLogin"
+    --role="roles/compute.osAdminLogin" \
+    --condition=None
 ```
+
+If you hit a prompt like *"The policy contains bindings with
+conditions, so specifying a condition is required..."*, the
+`--condition=None` flag is what you missed. Answer `None` from
+the menu and re-run.
 
 ### 3. Enable OS Login on the host (if not already)
 
