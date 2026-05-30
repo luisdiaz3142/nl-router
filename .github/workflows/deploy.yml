@@ -1,0 +1,151 @@
+# Auto-deploy nl-router after green CI on main.
+#
+# Triggers on the completion of the `build` workflow (defined in
+# build.yml). If that run was on `main` AND succeeded, this workflow
+# pulls the same .deb artifact build.yml uploaded, authenticates to
+# GCP, and runs `gcloud compute scp` + `gcloud compute ssh
+# --tunnel-through-iap` to invoke the same remote-install.sh that
+# `make redeploy` uses locally. Net effect: every successful push
+# lands on the deploy host within ~30 s of CI going green, with no
+# manual step in between.
+#
+# Configuration (none required to land the workflow — it stays inert
+# until these are set, so the file can sit on main without surprising
+# anyone):
+#
+#   Secrets (Settings → Secrets and variables → Actions → New secret):
+#     GCP_SA_KEY        Service account JSON key with permissions to
+#                       SSH into the deploy host via IAP. See
+#                       docs/auto-deploy-setup.md for the exact role
+#                       grants.
+#
+#   Variables (Settings → Secrets and variables → Actions → Variables):
+#     GCP_PROJECT       GCP project id that owns the deploy host.
+#     DEPLOY_HOST       Instance name of the deploy host. Plain name
+#                       (e.g. "dicom-diablo") — gcloud resolves it
+#                       within GCP_PROJECT.
+#     DEPLOY_ZONE       (optional) Compute zone if not the default
+#                       configured on the SA. Default: us-central1-a.
+#
+# The "is configured?" gate below skips the deploy if any required
+# secret/variable is missing. That makes this workflow safe to merge
+# before the operator has finished the GCP setup — first green CI
+# will just print a notice in the run log instead of failing.
+#
+# Production note: long-lived service account keys are not the
+# recommended auth model anymore. Workload Identity Federation (WIF)
+# binds GitHub Actions to a GCP identity without storing keys in
+# GitHub. We're using the SA key path for the initial setup because
+# it's faster to land; the migration to WIF is documented in
+# docs/auto-deploy-setup.md as a follow-up.
+
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+    branches: [main]
+
+# Cancel an in-flight deploy if a newer commit's build completes
+# while we're still deploying. We always want the deploy host on
+# the most recent green commit, not an intermediate one.
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: deploy to ${{ vars.DEPLOY_HOST || 'unconfigured' }}
+    # Only run when the build succeeded. workflow_run fires on ANY
+    # completion (success, failure, cancelled, etc.) — gate on the
+    # conclusion explicitly.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check auto-deploy is configured
+        id: check
+        env:
+          GCP_SA_KEY_SET: ${{ secrets.GCP_SA_KEY != '' }}
+          GCP_PROJECT:    ${{ vars.GCP_PROJECT }}
+          DEPLOY_HOST:    ${{ vars.DEPLOY_HOST }}
+        run: |
+          if [ "$GCP_SA_KEY_SET" = "true" ] \
+             && [ -n "$GCP_PROJECT" ] \
+             && [ -n "$DEPLOY_HOST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "✓ deploy → ${DEPLOY_HOST} in project ${GCP_PROJECT}"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-deploy not configured. See docs/auto-deploy-setup.md to enable. Missing: ${GCP_SA_KEY_SET:+}${GCP_PROJECT:+}${DEPLOY_HOST:+}"
+          fi
+
+      # We need remote-install.sh from the repo at the deployed commit.
+      # Use the SHA from the upstream build run so we deploy the exact
+      # tree that CI verified — not whatever's on main right now (which
+      # could be ahead by one or more commits).
+      - name: Checkout deployed commit
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Download build artifact
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: nl-router-deb-amd64
+          path: /tmp/deb
+          # Cross-workflow artifact download — the upload happened in
+          # build.yml's run, identified by its id.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Authenticate to GCP
+        if: steps.check.outputs.configured == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        if: steps.check.outputs.configured == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+
+      - name: Deploy via IAP
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_ZONE: ${{ vars.DEPLOY_ZONE || 'us-central1-a' }}
+        run: |
+          set -e
+          DEB=$(ls /tmp/deb/nl-router_*.deb | head -1)
+          DEB_BASE=$(basename "$DEB")
+
+          echo ">>> scp $DEB_BASE + remote-install.sh → $DEPLOY_HOST"
+          # Copy in two calls because gcloud compute scp's recursive
+          # behavior with multiple sources is finicky. Two scps are
+          # cheap.
+          gcloud compute scp \
+            --zone="$DEPLOY_ZONE" \
+            --tunnel-through-iap \
+            "$DEB" \
+            "$DEPLOY_HOST:/tmp/"
+          gcloud compute scp \
+            --zone="$DEPLOY_ZONE" \
+            --tunnel-through-iap \
+            packaging/scripts/remote-install.sh \
+            "$DEPLOY_HOST:/tmp/"
+
+          echo ">>> running remote-install.sh on $DEPLOY_HOST"
+          gcloud compute ssh \
+            --zone="$DEPLOY_ZONE" \
+            --tunnel-through-iap \
+            "$DEPLOY_HOST" \
+            -- "chmod +x /tmp/remote-install.sh && \
+                sudo /tmp/remote-install.sh /tmp/${DEB_BASE}"
+
+          echo ">>> deploy complete: $DEPLOY_HOST is now running $DEB_BASE"
