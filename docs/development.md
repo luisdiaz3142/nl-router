@@ -106,6 +106,62 @@ no_binary`), and the router's cache refresh is the only DSL parse check.
 Mypy is `strict` per `pyproject.toml`. Ruff config is opinionated but
 forgiving (line length handled by formatter, not linter).
 
+## Deploying to a remote host
+
+`make redeploy HOST=<hostname>` is the one-command path that
+collapses build → scp → install → restart into a single laptop-side
+invocation. Logic lives in
+[`packaging/scripts/redeploy.sh`](../packaging/scripts/redeploy.sh)
+(orchestrator on your laptop) and
+[`packaging/scripts/remote-install.sh`](../packaging/scripts/remote-install.sh)
+(runs on the remote host).
+
+```sh
+make redeploy HOST=dicom-diablo
+```
+
+The script prefers a CI-built `.deb` (downloaded via `gh run
+download`); falls back to a local Docker build if `gh` isn't
+installed or no green workflow run exists on HEAD. After scp'ing
+the `.deb` and `remote-install.sh` to the host, the remote script:
+
+1. `apt install --reinstall` the new `.deb`
+2. `nl-router init` — regenerates env files from `config.toml`
+3. `systemctl daemon-reload` — picks up any unit-file changes
+4. `systemctl reset-failed` — clears crash-restart counters
+5. Restarts every enabled core daemon and module-worker instance
+6. Final `is-active` health check; non-zero exit if any service
+   isn't running after restart
+
+Idempotent — re-running produces the same end state.
+
+### SSH through gcloud IAP / bastion hosts
+
+Set `NLR_SSH` and `NLR_SCP` env vars to wrap the underlying commands:
+
+```sh
+NLR_SSH='gcloud compute ssh dicom-diablo --tunnel-through-iap --' \
+NLR_SCP='gcloud compute scp --tunnel-through-iap' \
+    make redeploy HOST=dicom-diablo
+```
+
+(The `HOST=` argument becomes redundant when the SSH command
+already names the host, but the Makefile still requires a non-empty
+value.)
+
+### Caveats
+
+- **Services restart cold.** Mid-flight API requests and DICOM
+  associations fail. Fine for dev / single-node pilot; production
+  rolling-restart is out of scope here.
+- **Single host per invocation.** Use a shell loop for multiple
+  hosts; Ansible / pyinfra starts making sense at 3+ hosts.
+- **No automatic rollback.** If `apt install` fails the host stays
+  at the previous version; if the install succeeds but services
+  crash, you'll get a non-zero exit but the package is already
+  swapped in. Manual `apt install <previous-version.deb>` is the
+  rollback path.
+
 ## CI
 
 Every push to `main` and every pull request triggers

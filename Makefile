@@ -15,7 +15,7 @@ MIGRATIONS_DIR := migrations
         db-up db-down db-reset \
         dev dev-up dev-down \
         monitoring-up monitoring-down monitoring-logs \
-        test-py \
+        test-py redeploy \
         psql clean
 
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make monitoring-down Stop the monitoring stack (keeps volumes)"
 	@echo "  make monitoring-logs Tail Prometheus + Grafana logs"
 	@echo "  make test-py         Run the Python test suite (pytest)"
+	@echo "  make redeploy HOST=<host>   Build/fetch .deb, scp to host, run remote-install"
 
 # ---- Migrations -----------------------------------------------------------
 
@@ -106,6 +107,28 @@ PY ?= .venv/bin/python
 
 test-py:
 	$(PY) -m pytest python/tests/ $(PYTEST_ARGS)
+
+# ---- Redeploy ------------------------------------------------------------
+# One-shot wrapper for the build → scp → install → restart cycle.
+#
+# Prefers the latest CI artifact (fast, pre-verified by
+# check-deb-contents.sh); falls back to a local docker build if
+# gh isn't installed or there's no green CI run on HEAD.
+#
+# For gcloud-IAP / bastion-host SSH setups, override the underlying
+# commands via env vars (see packaging/scripts/redeploy.sh comments):
+#
+#   NLR_SSH='gcloud compute ssh dicom-diablo --tunnel-through-iap --' \
+#   NLR_SCP='gcloud compute scp --tunnel-through-iap' \
+#       make redeploy HOST=dicom-diablo
+
+redeploy:
+	@if [ -z "$(HOST)" ]; then \
+		echo "Usage: make redeploy HOST=<hostname>" 1>&2; \
+		echo "Example: make redeploy HOST=dicom-diablo" 1>&2; \
+		exit 2; \
+	fi
+	packaging/scripts/redeploy.sh "$(HOST)"
 
 # ---- Utilities ------------------------------------------------------------
 
