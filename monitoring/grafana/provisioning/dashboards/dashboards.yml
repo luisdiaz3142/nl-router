@@ -1,0 +1,28 @@
+# Grafana dashboard provisioning — loads every JSON file in
+# /var/lib/grafana/dashboards on startup and watches for changes.
+# That path is a bind-mount of the repo's `dashboards/` directory
+# (see docker-compose.yml), so a `git pull` updates dashboards in
+# place without anyone clicking through the UI.
+#
+# `allowUiUpdates: true` lets operators tweak a dashboard live in
+# the UI for prototyping; the file provider re-applies the YAML
+# defaults on every Grafana restart. To preserve changes, copy them
+# back into the repo's JSON file (Settings → JSON Model → copy).
+#
+# `updateIntervalSeconds: 30` is the file-watcher cadence — fine for
+# this use case; the UI is otherwise unchanged.
+
+apiVersion: 1
+
+providers:
+  - name: nl-router
+    orgId: 1
+    folder: nl-router
+    folderUid: nl-router
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

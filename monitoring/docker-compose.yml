@@ -1,0 +1,74 @@
+# nl-router self-contained monitoring stack.
+#
+# Brings up Prometheus + Grafana on the host so operators can watch
+# the C++ daemons (receiver/router/dispatcher/cleaner) + the FastAPI
+# management process without pointing at an external observability
+# system. Useful for development VMs and small single-node pilots.
+#
+# Both services use host networking so they can reach the nl-router
+# /metrics ports (9180-9184) over loopback as if they were running
+# directly on the host. That sidesteps Docker's per-container network
+# namespace and any host.docker.internal / extra_hosts dance.
+#
+# Persistent volumes keep TSDB data + Grafana state across restarts.
+# Dashboards live in the parent repo (`../dashboards/`) and get
+# bind-mounted into Grafana's provisioning path, so a `git pull`
+# automatically refreshes them — no clicking through Import.
+#
+# Bring up:    cd monitoring && docker compose up -d
+# Tear down:   docker compose down            # keeps volumes
+# Nuke state:  docker compose down -v         # destroys volumes
+#
+# Access:
+#   Prometheus → http://<host>:9090
+#   Grafana    → http://<host>:3000   (admin / admin on first login)
+
+services:
+
+  prometheus:
+    # Pin to a major.minor; v3.x is the current line as of 2025.
+    image: prom/prometheus:v3.5.0
+    container_name: nl-router-prometheus
+    restart: unless-stopped
+    network_mode: host       # so localhost:9180 etc. resolve to the host
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"      # POST /-/reload to hot-reload config
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: nl-router-grafana
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # Admin user is created on first start. Change the password via
+      # the UI on first login (or set GF_SECURITY_ADMIN_PASSWORD here).
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Don't phone home for usage stats from a self-hosted pilot box.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Anonymous access disabled by default (token auth is fine for
+      # ops). Flip to true with GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer if
+      # you want passwordless read-only access on a trusted network.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Provisioning: datasource + dashboard YAML files Grafana reads
+      # at startup. Adding new files here means a `docker compose
+      # restart grafana` (or just letting Grafana's file watcher pick
+      # them up; on by default for dashboards).
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # Dashboards live in the repo's `dashboards/` directory; we
+      # bind-mount the parent path so `git pull` updates them in
+      # place. The provisioner reads everything ending in .json.
+      - ../dashboards:/var/lib/grafana/dashboards:ro
+
+volumes:
+  prometheus_data:
+  grafana_data:

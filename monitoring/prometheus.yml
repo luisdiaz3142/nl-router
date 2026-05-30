@@ -1,0 +1,90 @@
+# Prometheus scrape configuration for an nl-router host.
+#
+# Targets the per-daemon /metrics ports declared in the design plan and
+# implemented in M17. Every target gets a `server_id` label set from
+# `external_labels` below (Prometheus auto-attaches it to every series)
+# so the dashboard's $server_id variable surfaces the right node when
+# multiple Prometheus instances are federated.
+#
+# Single-node deployments: this is the whole story.
+# Multi-node deployments: copy this file per node, change server_id,
+# or run a single Prometheus that scrapes every node's metrics ports
+# directly (loopback gets replaced with node hostnames).
+#
+# The Datadog Agent's prometheus_check works against the exact same
+# endpoints; when you move to Datadog later, you keep these URLs and
+# add them to /etc/datadog-agent/conf.d/openmetrics.d/conf.yaml.
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  # Stamps every scraped sample with this label. Change `server_id`
+  # to the value of NL_ROUTER_SERVER_ID on this host so the dashboard's
+  # $server_id filter works.
+  external_labels:
+    server_id: dicom-diablo
+
+scrape_configs:
+
+  # ---- nl-router C++ daemons --------------------------------------------
+
+  - job_name: nl-router-receiver
+    static_configs:
+      - targets: ["localhost:9180"]
+        labels:
+          service: receiver
+
+  - job_name: nl-router-route
+    static_configs:
+      - targets: ["localhost:9181"]
+        labels:
+          service: router
+
+  - job_name: nl-router-dispatcher
+    static_configs:
+      - targets: ["localhost:9182"]
+        labels:
+          service: dispatcher
+
+  - job_name: nl-router-cleaner
+    static_configs:
+      - targets: ["localhost:9183"]
+        labels:
+          service: cleaner
+
+  # ---- nl-router FastAPI management process -----------------------------
+
+  - job_name: nl-router-api
+    static_configs:
+      - targets: ["localhost:9184"]
+        labels:
+          service: api
+
+  # ---- Module workers (one per kind) ------------------------------------
+  #
+  # Module worker /metrics ports default to 0 (disabled). Set
+  # NL_ROUTER_METRICS_PORT=9190 (or whichever) in each module worker's
+  # systemd unit override, then uncomment + adjust the matching entry
+  # below. One port per kind so each worker has its own scrape target.
+  #
+  # - job_name: nl-router-mod-anonymize-basic
+  #   static_configs:
+  #     - targets: ["localhost:9190"]
+  #       labels:
+  #         service: module
+  #         module_kind: anonymize_basic
+  #
+  # - job_name: nl-router-mod-standardize-institution-group
+  #   static_configs:
+  #     - targets: ["localhost:9191"]
+  #       labels:
+  #         service: module
+  #         module_kind: standardize_institution_group
+
+  # ---- Prometheus itself ------------------------------------------------
+  #
+  # Useful for "is the scraper running" alerts and for the standard
+  # `up{}` health metric per target.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

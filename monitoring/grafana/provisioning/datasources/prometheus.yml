@@ -1,0 +1,21 @@
+# Grafana datasource provisioning — points at the colocated Prometheus
+# container. The URL uses localhost because both containers use
+# `network_mode: host` in docker-compose.yml; if you move Grafana off
+# the host's network namespace, change the URL accordingly.
+#
+# The `uid: prometheus` matches the value the bundled dashboard JSON
+# expects, so panels render without a manual datasource swap.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://localhost:9090
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"      # matches Prometheus's scrape_interval
+      httpMethod: POST

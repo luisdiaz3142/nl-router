@@ -14,6 +14,7 @@ MIGRATIONS_DIR := migrations
 .PHONY: help migrate migrate-up migrate-down migrate-status migrate-new \
         db-up db-down db-reset \
         dev dev-up dev-down \
+        monitoring-up monitoring-down monitoring-logs \
         psql clean
 
 help:
@@ -27,6 +28,9 @@ help:
 	@echo "  make migrate-new NAME=desc  Create a new migration pair"
 	@echo "  make psql            Open a psql shell against the dev database"
 	@echo "  make dev             Bring up the full dev stack"
+	@echo "  make monitoring-up   Start Prometheus + Grafana (see monitoring/README.md)"
+	@echo "  make monitoring-down Stop the monitoring stack (keeps volumes)"
+	@echo "  make monitoring-logs Tail Prometheus + Grafana logs"
 
 # ---- Migrations -----------------------------------------------------------
 
@@ -73,6 +77,20 @@ dev-up:
 
 dev-down:
 	docker compose down
+
+# ---- Monitoring (Prometheus + Grafana) -----------------------------------
+# See monitoring/README.md for details. The stack scrapes localhost on
+# the nl-router metric ports (9180-9184) so it runs colocated with the
+# .deb-installed daemons.
+
+monitoring-up:
+	cd monitoring && docker compose up -d
+
+monitoring-down:
+	cd monitoring && docker compose down
+
+monitoring-logs:
+	cd monitoring && docker compose logs -f --tail=50
 
 # ---- Utilities ------------------------------------------------------------
 
