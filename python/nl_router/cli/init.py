@@ -2,7 +2,7 @@
 
 Idempotent — designed to run after the .deb/.rpm has been installed and
 the operator has edited /etc/nl-router/config.toml with their DSN.
-Performs five steps in order, skipping any that are already done:
+Performs six steps in order, skipping any that are already done:
 
   1. Generate /etc/nl-router/kek.key (32 random bytes, base64url-encoded)
      if missing; chown to nl-router:nl-router; chmod 0400.
@@ -10,14 +10,18 @@ Performs five steps in order, skipping any that are already done:
      pick up NL_ROUTER_SERVER_ID + NL_ROUTER_DATABASE_URL on start. Pre-
      M22, operators had to write this file by hand or every daemon
      crashed with "required env var not set."
-  3. Run `nl-router migrate up` if the schema isn't initialized.
-  4. Mint an initial admin API token (one only — re-runs are no-ops
+  3. Generate /etc/nl-router/module-<kind>.env for every shipped module
+     kind, assigning a unique NL_ROUTER_METRICS_PORT (M26). Lights up
+     the per-module-kind Prometheus scrape targets without any operator
+     port-allocation work.
+  4. Run `nl-router migrate up` if the schema isn't initialized.
+  5. Mint an initial admin API token (one only — re-runs are no-ops
      unless --force).
-  5. Print next-steps banner.
+  6. Print next-steps banner.
 
 Operator can opt out of any step with --skip-kek-gen / --skip-env /
---skip-migrate / --skip-token. The KEK and migrations are typically the
-slowest path; the token mint is fast.
+--skip-module-env / --skip-migrate / --skip-token. The KEK and
+migrations are typically the slowest path; the token mint is fast.
 
 Future expansion (deferred): create a local admin user with password,
 seed initial OIDC config from a TOML, install Grafana dashboards.
@@ -40,6 +44,22 @@ import typer
 from nl_router.cli._common import die, out
 from nl_router.config import DEFAULT_KEK_FILE, load
 from nl_router.db import connect, schema_version
+
+
+# Canonical metrics-port assignments per shipped module kind.
+#
+# 9190+ is the design-plan range for module workers (receiver=9180,
+# router=9181, dispatcher=9182, cleaner=9183, api=9184). When a new
+# module ships, add it here AND uncomment the matching entry in
+# monitoring/prometheus.yml — the two must stay in sync.
+#
+# Operators don't edit this dict; if they're running their own custom
+# module they hand-write /etc/nl-router/module-<kind>.env with their
+# chosen port and add their own scrape config.
+MODULE_METRICS_PORTS: dict[str, int] = {
+    "anonymize_basic":               9190,
+    "standardize_institution_group": 9191,
+}
 
 
 def init(
@@ -69,6 +89,14 @@ def init(
         typer.Option(
             "--skip-env",
             help="Don't generate /etc/nl-router/env from config.toml.",
+        ),
+    ] = False,
+    skip_module_env: Annotated[
+        bool,
+        typer.Option(
+            "--skip-module-env",
+            help="Don't generate /etc/nl-router/module-<kind>.env files "
+                 "with metrics-port assignments.",
         ),
     ] = False,
     skip_migrate: Annotated[
@@ -105,7 +133,11 @@ def init(
     if not skip_env:
         _ensure_env_file(cfg)
 
-    # ---- 3. Migrations ----------------------------------------------------
+    # ---- 3. Per-module-kind env files (metrics ports) ---------------------
+    if not skip_module_env:
+        _ensure_module_env_files()
+
+    # ---- 4. Migrations ----------------------------------------------------
     if not skip_migrate:
         version = schema_version()
         if version is None:
@@ -283,6 +315,60 @@ def _ensure_env_file(cfg) -> None:                  # type: ignore[no-untyped-de
 
     os.rename(tmp_path, env_path)
     out.print(f"  [green]→ env file written:[/green] {env_path} [dim](0640)[/dim]")
+
+
+def _ensure_module_env_files() -> None:
+    """Write /etc/nl-router/module-<kind>.env for each shipped module.
+
+    Each file sets NL_ROUTER_METRICS_PORT to the kind's canonical
+    assignment from MODULE_METRICS_PORTS. The systemd template unit
+    (`nl-router-module@.service`) sources these on each worker start.
+
+    The receiver of this auto-generation is Prometheus, not the worker
+    itself — the worker runs fine without a metrics port (it just won't
+    expose `/metrics`). But the Prometheus scrape jobs in
+    `monitoring/prometheus.yml` assume the canonical ports, so this is
+    what keeps the per-module-kind Grafana panels populated.
+
+    Operators with custom module kinds skip this step (via
+    --skip-module-env) and hand-write their own port assignments.
+    """
+    if not MODULE_METRICS_PORTS:
+        return
+    out.print(f"  → module env files for [cyan]{len(MODULE_METRICS_PORTS)}[/cyan] kind(s):")
+
+    try:
+        nl_router_uid_gid = pwd.getpwnam("nl-router")
+    except KeyError:
+        nl_router_uid_gid = None
+
+    for kind, port in MODULE_METRICS_PORTS.items():
+        env_path = Path(f"/etc/nl-router/module-{kind}.env")
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = [
+            f"# Generated by `nl-router init` (M26).",
+            f"# Metrics port assignment for the {kind!r} module-worker.",
+            f"# Prometheus's scrape config expects this exact port; if you",
+            f"# change it, update monitoring/prometheus.yml to match.",
+            f"NL_ROUTER_METRICS_PORT={port}",
+        ]
+        content = "\n".join(lines) + "\n"
+
+        # Atomic write — same temp+rename pattern as the other init files.
+        tmp_path = env_path.with_suffix(env_path.suffix + ".tmp")
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
+        try:
+            os.write(fd, content.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        if os.geteuid() == 0 and nl_router_uid_gid is not None:
+            os.chown(tmp_path, nl_router_uid_gid.pw_uid, nl_router_uid_gid.pw_gid)
+
+        os.rename(tmp_path, env_path)
+        out.print(f"    [green]✓[/green] {env_path.name} → port {port}")
 
 
 def _run_migrate_up() -> None:

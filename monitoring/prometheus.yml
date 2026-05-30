@@ -62,24 +62,33 @@ scrape_configs:
 
   # ---- Module workers (one per kind) ------------------------------------
   #
-  # Module worker /metrics ports default to 0 (disabled). Set
-  # NL_ROUTER_METRICS_PORT=9190 (or whichever) in each module worker's
-  # systemd unit override, then uncomment + adjust the matching entry
-  # below. One port per kind so each worker has its own scrape target.
+  # Per-kind metrics ports are assigned automatically by `nl-router init`
+  # (M26) — see python/nl_router/cli/init.py:MODULE_METRICS_PORTS. The
+  # ports below MUST match that dict; if a new module kind ships, add
+  # it to both places at once.
   #
-  # - job_name: nl-router-mod-anonymize-basic
-  #   static_configs:
-  #     - targets: ["localhost:9190"]
-  #       labels:
-  #         service: module
-  #         module_kind: anonymize_basic
+  # If the corresponding module-worker service isn't enabled on this
+  # host, Prometheus will mark its target DOWN until the operator runs
+  # `systemctl enable --now nl-router-module@<kind>`. That's expected
+  # behavior — non-running workers aren't an error.
   #
-  # - job_name: nl-router-mod-standardize-institution-group
-  #   static_configs:
-  #     - targets: ["localhost:9191"]
-  #       labels:
-  #         service: module
-  #         module_kind: standardize_institution_group
+  # Operators with their own custom module kinds: don't edit this file
+  # for them; add a new job_name block in a separate scrape config or
+  # a drop-in here.
+
+  - job_name: nl-router-mod-anonymize-basic
+    static_configs:
+      - targets: ["localhost:9190"]
+        labels:
+          service: module
+          module_kind: anonymize_basic
+
+  - job_name: nl-router-mod-standardize-institution-group
+    static_configs:
+      - targets: ["localhost:9191"]
+        labels:
+          service: module
+          module_kind: standardize_institution_group
 
   # ---- Prometheus itself ------------------------------------------------
   #

@@ -19,9 +19,16 @@ Type=simple
 User=nl-router
 Group=nl-router
 
-# Per-kind environment file lets operators override config without
-# touching the shared base. Both files are optional; the worker also
-# reads /etc/nl-router/config.toml via the standard config loader.
+# Env file precedence (each later file overrides earlier):
+#   /etc/nl-router/env            shared bootstrap from `nl-router init`
+#                                  (NL_ROUTER_SERVER_ID, DATABASE_URL, ...)
+#   /etc/nl-router/module-common.env   shared module-worker tuning
+#                                  (NL_ROUTER_POLL_INTERVAL_MS, BATCH_SIZE, etc.)
+#   /etc/nl-router/module-<kind>.env   per-kind values, including the
+#                                  NL_ROUTER_METRICS_PORT auto-assigned by
+#                                  `nl-router init` (9190+, one per kind).
+# All three are marked `-` so the unit doesn't fail before init runs.
+EnvironmentFile=-/etc/nl-router/env
 EnvironmentFile=-/etc/nl-router/module-common.env
 EnvironmentFile=-/etc/nl-router/module-%i.env
 Environment=NL_ROUTER_MODULE_KIND=%i
