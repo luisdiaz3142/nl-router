@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
@@ -120,11 +122,33 @@ def decrypt_credential_payload(
 # ---- per-kind probes -----------------------------------------------------
 
 
+_DCM_PROBE_BIN_CANONICAL = "/usr/libexec/nl-router/nl-dcm-probe"
+_DCM_PROBE_BIN_ENV = "NL_ROUTER_DCM_PROBE_BIN"
+
+
+def _find_dcm_probe_binary() -> str | None:
+    """Locate nl-dcm-probe (M31 helper). Same discovery as nl-dsl-validate.
+
+    Env override → canonical .deb path → PATH lookup. Returns None when
+    no copy is installed; in that mode `_probe_dicom` falls back to the
+    pre-M31 TCP-only behavior so dev setups without a C++ build still
+    get a meaningful answer.
+    """
+    override = os.environ.get(_DCM_PROBE_BIN_ENV)
+    if override:
+        return override if os.path.isfile(override) else None
+    if os.path.isfile(_DCM_PROBE_BIN_CANONICAL):
+        return _DCM_PROBE_BIN_CANONICAL
+    return shutil.which("nl-dcm-probe")
+
+
 def _probe_dicom(*, config, credential, timeout_s) -> ProbeResult:
-    """DICOM C-ECHO is a v2 feature — requires a DCMTK SCU we don't have
-    in the API process. For now we do a TCP-only reachability check on
-    the host:port pair so the operator at least learns whether the
-    network path exists.
+    """Real DIMSE C-ECHO probe via the nl-dcm-probe helper (M31).
+
+    Replaces the M19 TCP-only check. Falls back to TCP-only when the
+    helper isn't installed (dev mode without a C++ build) or when
+    TLS is configured (M31 helper doesn't speak TLS yet — deferred
+    with the rest of DICOM TLS).
     """
     host = config.get("host")
     port = int(config.get("port", 0))
@@ -135,6 +159,79 @@ def _probe_dicom(*, config, credential, timeout_s) -> ProbeResult:
             elapsed_ms=0,
             kind="dicom",
         )
+    called_aet  = config.get("called_aet")
+    calling_aet = config.get("calling_aet")
+    if not called_aet or not calling_aet:
+        return ProbeResult(
+            ok=False,
+            detail="config must include called_aet + calling_aet",
+            elapsed_ms=0,
+            kind="dicom",
+        )
+
+    binary = _find_dcm_probe_binary()
+    tls_enabled = bool(config.get("tls", False))
+    if binary is None or tls_enabled:
+        # Fall back to TCP-only — same as pre-M31. Reasons documented
+        # in detail message so operators know why this isn't a real
+        # C-ECHO.
+        return _probe_dicom_tcp_only(
+            host=host, port=port, timeout_s=timeout_s,
+            why=("TLS configured (helper doesn't speak TLS yet)" if tls_enabled
+                 else "nl-dcm-probe helper not installed"),
+        )
+
+    max_pdu = int(config.get("max_pdu_size", 131072))
+    cmd = [
+        binary,
+        host, str(port),
+        called_aet, calling_aet,
+        str(int(timeout_s)),
+        str(max_pdu),
+    ]
+
+    start = time.perf_counter()
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout_s + 2,        # extra grace for process teardown
+        )
+    except subprocess.TimeoutExpired:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return ProbeResult(
+            ok=False,
+            detail=f"C-ECHO to {host}:{port} timed out after {timeout_s}s",
+            elapsed_ms=elapsed,
+            kind="dicom",
+        )
+
+    elapsed = int((time.perf_counter() - start) * 1000)
+    if result.returncode == 0:
+        return ProbeResult(
+            ok=True,
+            detail=f"C-ECHO to {host}:{port} succeeded ({called_aet} ← {calling_aet})",
+            elapsed_ms=elapsed,
+            kind="dicom",
+        )
+    # nl-dcm-probe writes a single-line stderr message on failure; pass
+    # verbatim so the operator sees the DCMTK-level reason ("Connection
+    # refused", "Association Rejected", etc.).
+    err = result.stderr.decode("utf-8", errors="replace").strip()
+    return ProbeResult(
+        ok=False,
+        detail=f"C-ECHO to {host}:{port} failed: {err or 'unknown (exit ' + str(result.returncode) + ')'}",
+        elapsed_ms=elapsed,
+        kind="dicom",
+    )
+
+
+def _probe_dicom_tcp_only(*, host: str, port: int, timeout_s: float, why: str) -> ProbeResult:
+    """Pre-M31 fallback: TCP socket connect, no DIMSE handshake.
+
+    Kept as a fallback for (a) dev setups without a C++ build and
+    (b) TLS-enabled destinations until nl-dcm-probe learns TLS.
+    """
     start = time.perf_counter()
     try:
         with socket.create_connection((host, port), timeout=timeout_s):
@@ -142,8 +239,8 @@ def _probe_dicom(*, config, credential, timeout_s) -> ProbeResult:
             return ProbeResult(
                 ok=True,
                 detail=(
-                    f"TCP connect to {host}:{port} succeeded. "
-                    f"(C-ECHO not yet supported via this button — send a real study or use echoscu.)"
+                    f"TCP connect to {host}:{port} succeeded — "
+                    f"DIMSE check skipped ({why})."
                 ),
                 elapsed_ms=elapsed,
                 kind="dicom",

@@ -49,6 +49,7 @@ REQUIRED="
 /usr/bin/nl-router-migrate
 /usr/bin/nl-router
 /usr/libexec/nl-router/nl-dsl-validate
+/usr/libexec/nl-router/nl-dcm-probe
 /usr/libexec/nl-router/modules/anonymize_basic
 /usr/libexec/nl-router/modules/standardize_institution_group
 /lib/systemd/system/nl-router-receiver.service

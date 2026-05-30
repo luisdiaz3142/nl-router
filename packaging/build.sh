@@ -92,6 +92,14 @@ install -m0755 cpp/build-pkg/cleaner/nl-clean       "${STAGING}/usr/bin/"
 install -m0755 cpp/build-pkg/common/dsl/nl-dsl-validate \
     "${STAGING}/usr/libexec/nl-router/nl-dsl-validate"
 
+# DICOM C-ECHO probe helper (M31). Statically links DCMTK; the
+# management API's destination test-connection feature shells out
+# to it for `dicom`-kind destinations so the green check on the UI
+# actually means "DIMSE handshake succeeded" instead of just "TCP
+# connect succeeded."
+install -m0755 cpp/build-pkg/common/dcm-probe/nl-dcm-probe \
+    "${STAGING}/usr/libexec/nl-router/nl-dcm-probe"
+
 # Module binaries — staged under their DB-kind name (no nl-mod- prefix).
 # Each binary's filename here MUST match the processing_modules.kind value
 # the operator references from rule_processing_chain; that's the path the

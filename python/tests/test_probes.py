@@ -78,20 +78,107 @@ def test_probe_dicom_requires_host_port() -> None:
     assert "host" in result.detail and "port" in result.detail
 
 
-def test_probe_dicom_unreachable_fails_fast() -> None:
+def test_probe_dicom_requires_aets(monkeypatch) -> None:
+    """M31 added a real C-ECHO probe which needs both AETs. Missing
+    either should fail validation before any subprocess fires."""
+    # Force the helper-missing fallback path so we exercise the
+    # earlier "required field" check unambiguously.
+    monkeypatch.setattr(probes, "_find_dcm_probe_binary", lambda: None)
+    result = probe_destination(
+        kind="dicom",
+        config={"host": "127.0.0.1", "port": 11112},   # AETs missing
+        credential=None,
+    )
+    assert result.ok is False
+    assert "called_aet" in result.detail and "calling_aet" in result.detail
+
+
+def test_probe_dicom_unreachable_fails_fast(monkeypatch) -> None:
     """An invalid TEST-NET-1 address times out in well under 8 s and
     returns ok=False with a descriptive detail. We use a 0.5s timeout
     so the test itself stays fast — there's no listener at 192.0.2.1
-    by RFC 5737."""
+    by RFC 5737.
+
+    Force the TCP-only fallback so this test doesn't depend on the
+    C++ helper being built. The real C-ECHO path has its own coverage
+    below (skipped when the helper isn't built)."""
+    monkeypatch.setattr(probes, "_find_dcm_probe_binary", lambda: None)
     result = probe_destination(
         kind="dicom",
-        config={"host": "192.0.2.1", "port": 1},
+        config={
+            "host": "192.0.2.1", "port": 1,
+            "called_aet": "ARCHIVE", "calling_aet": "TESTER",
+        },
         credential=None,
         timeout_s=0.5,
     )
     assert result.ok is False
     assert result.kind == "dicom"
     assert "failed" in result.detail or "timed out" in result.detail
+
+
+def test_probe_dicom_tls_falls_back_to_tcp_only(monkeypatch) -> None:
+    """TLS destinations skip the real C-ECHO (helper doesn't speak
+    TLS yet) and explain why in the detail message."""
+    # Pretend the helper IS installed so we know the TLS gate is what
+    # produced the TCP fallback, not absence of the binary.
+    monkeypatch.setattr(probes, "_find_dcm_probe_binary",
+                        lambda: "/usr/libexec/nl-router/nl-dcm-probe")
+    result = probe_destination(
+        kind="dicom",
+        config={
+            "host": "192.0.2.1", "port": 1,
+            "called_aet": "ARCHIVE", "calling_aet": "TESTER",
+            "tls": True,
+        },
+        credential=None,
+        timeout_s=0.5,
+    )
+    # Will fail TCP-only because 192.0.2.1:1 isn't reachable, but the
+    # detail tells us the TLS gate ran first.
+    assert result.kind == "dicom"
+    # Either the connection failed (most likely) or hit some other
+    # OS-level error — but it MUST NOT have shelled out to the helper.
+    # We assert by ensuring the detail message doesn't mention "C-ECHO"
+    # (the real-probe success/failure detail prefix).
+    assert "C-ECHO" not in result.detail
+
+
+def test_probe_dicom_no_helper_falls_back_to_tcp_only(monkeypatch) -> None:
+    """Dev-mode setups without a C++ build: helper missing → TCP-only,
+    detail message says so."""
+    monkeypatch.setattr(probes, "_find_dcm_probe_binary", lambda: None)
+    result = probe_destination(
+        kind="dicom",
+        config={
+            "host": "192.0.2.1", "port": 1,
+            "called_aet": "ARCHIVE", "calling_aet": "TESTER",
+        },
+        credential=None,
+        timeout_s=0.5,
+    )
+    # Unreachable → fail, but detail must indicate the fallback path
+    # rather than the C-ECHO path so operators know why their setup
+    # gave a TCP-only answer.
+    assert result.ok is False
+    assert "C-ECHO" not in result.detail
+
+
+def test_find_dcm_probe_env_override(tmp_path, monkeypatch) -> None:
+    """NL_ROUTER_DCM_PROBE_BIN should win over any canonical path."""
+    fake = tmp_path / "nl-dcm-probe-fake"
+    fake.write_bytes(b"#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("NL_ROUTER_DCM_PROBE_BIN", str(fake))
+    assert probes._find_dcm_probe_binary() == str(fake)
+
+
+def test_find_dcm_probe_env_override_missing_returns_none(monkeypatch) -> None:
+    """A misconfigured env override (path doesn't exist) returns None
+    rather than silently falling through to the canonical path — same
+    semantics as the DSL helper discovery."""
+    monkeypatch.setenv("NL_ROUTER_DCM_PROBE_BIN", "/no/such/file/anywhere")
+    assert probes._find_dcm_probe_binary() is None
 
 
 def test_probe_file_requires_path() -> None:

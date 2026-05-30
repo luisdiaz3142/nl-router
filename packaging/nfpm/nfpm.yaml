@@ -113,6 +113,19 @@ contents:
     file_info:
       mode: 0755
 
+  # ---- DICOM C-ECHO probe helper (M31) ---------------------------------
+  # Statically-linked DCMTK SCU. The management API's
+  # destination test-connection button shells out to it for
+  # `dicom`-kind destinations, replacing M19's TCP-only check
+  # with a real DIMSE handshake + Verification SOP Class probe.
+  # Lesson from M27: every binary build.sh stages needs an entry
+  # here too, or it silently drops out of the .deb. Added at the
+  # same time as the build.sh install line.
+  - src: "${STAGING}/usr/libexec/nl-router/nl-dcm-probe"
+    dst: /usr/libexec/nl-router/nl-dcm-probe
+    file_info:
+      mode: 0755
+
   # ---- Processing module binaries --------------------------------------
   - src: "${STAGING}/usr/libexec/nl-router/modules/anonymize_basic"
     dst: /usr/libexec/nl-router/modules/anonymize_basic

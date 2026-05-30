@@ -354,11 +354,23 @@ Either the Prometheus scrape isn't working or the dashboard's
 
 ### Test connection button reports "TCP connect succeeded" but DICOM still fails
 
-The DICOM-kind probe (M19) does **TCP-only reachability** — it confirms
-something is listening on host:port but not that DIMSE negotiation
-works. A working TCP probe + a failing real dispatch usually means
-AET mismatch or transfer syntax mismatch. C-ECHO support is a
-v2 follow-up.
+As of M31, the DICOM-kind probe sends a real C-ECHO via the
+shipped `nl-dcm-probe` helper, so a green Test Connection means
+DIMSE negotiation succeeded. The detail line reads:
+
+> ✓ Connection OK · dicom · 180 ms — C-ECHO to 10.0.1.5:11112 succeeded (ARCHIVE ← NL_ROUTER)
+
+If you instead see:
+
+> ✓ Connection OK · dicom · 1 ms — TCP connect to ... succeeded — DIMSE check skipped (nl-dcm-probe helper not installed)
+
+that means the host is running an older .deb (pre-M31) or you're in
+dev mode without the C++ build. Reinstall and the C-ECHO path
+activates.
+
+For TLS-configured destinations (`"tls": true`) the helper still
+falls back to TCP-only — TLS support is deferred with the rest of
+the DICOM-TLS work (design plan).
 
 ---
 
