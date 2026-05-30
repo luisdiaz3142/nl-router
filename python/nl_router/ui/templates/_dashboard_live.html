@@ -1,0 +1,84 @@
+{# Live dashboard fragment.
+
+   Rendered as the initial server-side fill on /ui, then re-rendered
+   every ~2 seconds and pushed via SSE (see dashboard_stream in
+   ui/routes.py). The HTMX-SSE extension on the parent dashboard page
+   swaps this whole block in on every event.
+
+   What's here:
+     * Stat-card grid of work_queue.status counts.
+     * "Recent associations" table — last 20 rows.
+
+   What's NOT here (stays in dashboard.html as a one-shot render):
+     * Page header
+     * Node metadata card (server_id / schema_version / version)
+
+   Context vars expected:
+     * status_counts : list[{status, count, pill}]
+     * recent_rows   : list[work_queue row dicts with pill]
+#}
+
+{% if status_counts %}
+    <div class="card-grid">
+        {% for s in status_counts %}
+            <div class="stat-card {% if loop.first %}accent{% endif %}">
+                <div class="stat-label">{{ s.status }}</div>
+                <div class="stat-value">{{ "{:,}".format(s.count) }}</div>
+                <div class="stat-sub">
+                    <span class="badge badge-{{ s.pill }}">{{ s.status }}</span>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No traffic yet</h3>
+        <p>Send a DICOM study to the receiver and rows will appear here as they
+           progress through routing → processing → dispatch.</p>
+        <a href="/ui/rules" class="btn btn-primary">Set up routing rules</a>
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="row" style="margin-bottom: var(--sp-4);">
+        <h3 class="card-title" style="margin: 0;">Recent associations</h3>
+        <span class="muted">last 20 · live</span>
+        <span class="spacer"></span>
+        <a href="/ui/studies" class="btn btn-ghost btn-sm">View all studies</a>
+    </div>
+
+    {% if recent_rows %}
+        <div class="table-wrap">
+            <table class="table-data">
+                <thead>
+                    <tr>
+                        <th>Received</th>
+                        <th>Calling AET</th>
+                        <th>Modality</th>
+                        <th>Study UID</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recent_rows %}
+                    <tr>
+                        <td class="shrink"><small>{{ r.received_at }}</small></td>
+                        <td><code>{{ r.calling_aet }}</code></td>
+                        <td>{{ r.modality or "—" }}</td>
+                        <td>
+                            <a href="/ui/studies/{{ r.id }}">
+                                <code>{{ r.study_instance_uid[-24:] }}</code>
+                            </a>
+                        </td>
+                        <td class="shrink">
+                            <span class="badge badge-{{ r.pill }}">{{ r.status }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="muted" style="margin: 0;"><em>No associations yet.</em></p>
+    {% endif %}
+</div>

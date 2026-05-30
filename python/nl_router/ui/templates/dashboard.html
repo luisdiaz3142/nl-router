@@ -6,78 +6,32 @@
 <div class="page-header">
     <div>
         <h1>Dashboard</h1>
-        <div class="subtitle">Live operational view of this nl-router node.</div>
-    </div>
-</div>
-
-{# ---- Top stat cards: work-queue counts as glanceable tiles. -------- #}
-{% if status_counts %}
-    <div class="card-grid">
-        {% for s in status_counts %}
-            <div class="stat-card {% if loop.first %}accent{% endif %}">
-                <div class="stat-label">{{ s.status }}</div>
-                <div class="stat-value">{{ "{:,}".format(s.count) }}</div>
-                <div class="stat-sub">
-                    <span class="badge badge-{{ s.pill }}">{{ s.status }}</span>
-                </div>
-            </div>
-        {% endfor %}
-    </div>
-{% else %}
-    <div class="empty-state">
-        <h3>No traffic yet</h3>
-        <p>Send a DICOM study to the receiver and rows will appear here as they
-           progress through routing → processing → dispatch.</p>
-        <a href="/ui/rules" class="btn btn-primary">Set up routing rules</a>
-    </div>
-{% endif %}
-
-{# ---- Recent associations table ------------------------------------- #}
-<div class="card">
-    <div class="row" style="margin-bottom: var(--sp-4);">
-        <h3 class="card-title" style="margin: 0;">Recent associations</h3>
-        <span class="muted">last 20</span>
-        <span class="spacer"></span>
-        <a href="/ui/studies" class="btn btn-ghost btn-sm">View all studies</a>
-    </div>
-
-    {% if recent_rows %}
-        <div class="table-wrap">
-            <table class="table-data">
-                <thead>
-                    <tr>
-                        <th>Received</th>
-                        <th>Calling AET</th>
-                        <th>Modality</th>
-                        <th>Study UID</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in recent_rows %}
-                    <tr>
-                        <td class="shrink"><small>{{ r.received_at }}</small></td>
-                        <td><code>{{ r.calling_aet }}</code></td>
-                        <td>{{ r.modality or "—" }}</td>
-                        <td>
-                            <a href="/ui/studies/{{ r.id }}">
-                                <code>{{ r.study_instance_uid[-24:] }}</code>
-                            </a>
-                        </td>
-                        <td class="shrink">
-                            <span class="badge badge-{{ r.pill }}">{{ r.status }}</span>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="subtitle">
+            Live operational view of this nl-router node.
+            <span class="muted">Auto-refreshing every 2 seconds.</span>
         </div>
-    {% else %}
-        <p class="muted" style="margin: 0;"><em>No associations yet.</em></p>
-    {% endif %}
+    </div>
 </div>
 
-{# ---- Node metadata: tiny fact pair ---------------------------------- #}
+{# ---- Live region: stat cards + recent associations.
+
+   The initial render is the same _dashboard_live.html partial the SSE
+   stream pushes, so first paint and live updates use one template.
+   The wrapper div is the HTMX-SSE target:
+     hx-ext="sse"               — opt this subtree into the SSE extension
+     sse-connect=…              — EventSource URL
+     sse-swap="dashboard-update" — listen for that named event, swap its
+                                   payload into this element
+   Updates arrive as full innerHTML of the wrapper, replacing both the
+   stat grid and the recent-associations table atomically.
+#}
+<div hx-ext="sse"
+     sse-connect="/ui/dashboard/_stream"
+     sse-swap="dashboard-update">
+    {% include "_dashboard_live.html" %}
+</div>
+
+{# ---- Node metadata: tiny fact pair, not in the live region ---------- #}
 <div class="card">
     <h3 class="card-title">Node</h3>
     <dl class="kv">

@@ -8,10 +8,12 @@ mount() helper at the bottom of this file.
 
 from __future__ import annotations
 
-from typing import Annotated
+import asyncio
+import logging
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 
 from nl_router.api.auth import AuthContext, InvalidToken, validate_raw_token
 from nl_router.db import pool
@@ -20,7 +22,9 @@ from nl_router.ui.auth import (
     SESSION_MAX_AGE,
     ui_auth_required,
 )
-from nl_router.ui.common import pill, render, set_flash
+from nl_router.ui.common import pill, render, set_flash, templates
+
+log = logging.getLogger("nl_router.ui.routes")
 
 
 router = APIRouter(prefix="/ui", tags=["ui"], include_in_schema=False)
@@ -102,9 +106,105 @@ async def dashboard(
 ):
     """GET /ui — landing page after login.
 
-    Two simple aggregates for now: status counts across work_queue,
-    and the 20 most recent rows. Real-time updates (SSE) land with
-    slice 4's studies view.
+    Renders the dashboard with one initial snapshot of work_queue
+    status counts + recent rows + node metadata. The page then
+    subscribes to /ui/dashboard/_stream which pushes refreshed
+    fragments every ~2 seconds via SSE (see dashboard_stream below).
+    """
+    data = _load_dashboard_data()
+    return render(
+        request, "dashboard.html",
+        auth=auth,
+        **data,
+    )
+
+
+# ---- Dashboard SSE -----------------------------------------------------
+
+
+# How often we push a fresh snapshot down to subscribed dashboards. Sized
+# to feel "live" without crushing the DB — the underlying query is
+# ~10ms on a populated work_queue, so 2 s leaves plenty of headroom.
+_DASHBOARD_STREAM_INTERVAL_S = 2.0
+
+
+@router.get("/dashboard/_stream")
+async def dashboard_stream(
+    request: Request,
+    auth: Annotated[AuthContext, Depends(ui_auth_required)],
+):
+    """Server-Sent Events endpoint for live dashboard updates.
+
+    Streams one `dashboard-update` event every ~2 s carrying the
+    rendered _dashboard_live.html fragment as the data payload. The
+    HTMX-SSE extension on the dashboard page swaps the fragment into
+    place when each event arrives.
+
+    Lifecycle:
+      * Disconnects (browser close, navigation away) raise
+        asyncio.CancelledError in the generator — we catch and exit
+        cleanly so the DB pool slot is released.
+      * Each iteration opens + releases its own pool connection. We
+        don't hold a connection open for the lifetime of the stream;
+        with N concurrent dashboards open that would burn through the
+        pool. The trade-off is N more queries per scrape interval —
+        cheap.
+      * Each event is prefixed by `event:` + `data:` lines per the
+        SSE spec; the closing blank line is what tells the browser
+        the event is complete.
+    """
+    async def event_stream():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
+
+                # Compose the next event payload. The template rendering
+                # itself is sync, so wrap in to_thread to avoid blocking
+                # the event loop on a slow DB query under heavy load.
+                fragment = await asyncio.to_thread(_render_dashboard_live, request)
+
+                # SSE message framing: `event:` is the named event the
+                # client subscribes to; multi-line `data:` payloads are
+                # supported but the HTML fragment is rendered on one
+                # line by `_sse_encode` so we don't have to worry.
+                yield _sse_encode("dashboard-update", fragment)
+
+                await asyncio.sleep(_DASHBOARD_STREAM_INTERVAL_S)
+        except asyncio.CancelledError:
+            # Client disconnected (browser closed the EventSource).
+            # Re-raise so Starlette can finish the response cleanly.
+            raise
+        except Exception:
+            log.exception("dashboard_stream.failed")
+            # End the stream gracefully on unexpected errors — the
+            # browser will auto-reconnect after EventSource's default
+            # retry interval.
+            return
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            # nginx / similar proxies buffer responses by default; that
+            # breaks SSE's "push as you go" semantics. This header is
+            # the well-known opt-out.
+            "X-Accel-Buffering": "no",
+            # Helpful for testing through clients that cache aggressively.
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+# ---- Helpers -----------------------------------------------------------
+
+
+def _load_dashboard_data() -> dict[str, Any]:
+    """Pull the live data shown on the dashboard.
+
+    Shared between the initial GET render and the SSE stream so the
+    fragment shape stays consistent. Returns the kwargs the dashboard
+    template expects (`status_counts`, `recent_rows`, `schema_version`).
     """
     with pool().connection() as conn, conn.cursor() as cur:
         cur.execute("""
@@ -138,10 +238,32 @@ async def dashboard(
         except Exception:
             schema_version = None
 
-    return render(
-        request, "dashboard.html",
-        auth=auth,
-        status_counts=status_counts,
-        recent_rows=recent_rows,
-        schema_version=schema_version,
-    )
+    return {
+        "status_counts":  status_counts,
+        "recent_rows":    recent_rows,
+        "schema_version": schema_version,
+    }
+
+
+def _render_dashboard_live(request: Request) -> str:
+    """Render the `_dashboard_live.html` partial with fresh data.
+
+    The partial only contains the bits the stream updates — the
+    stat-card grid + recent-associations table. Static node metadata
+    stays in the parent template and isn't re-rendered.
+    """
+    data = _load_dashboard_data()
+    tpl = templates.get_template("_dashboard_live.html")
+    return tpl.render({"request": request, **data})
+
+
+def _sse_encode(event: str, html: str) -> str:
+    """Format an SSE message as a single multi-line string.
+
+    The spec says `data:` lines are joined by newlines on the client,
+    so we strip newlines from the HTML before encoding to keep the
+    framing simple. Compact HTML output is fine — browsers parse it
+    identically. Trailing blank line is the message terminator.
+    """
+    flat = html.replace("\r", "").replace("\n", " ")
+    return f"event: {event}\ndata: {flat}\n\n"

@@ -37,6 +37,10 @@
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"
             integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
             crossorigin="anonymous"></script>
+
+    {# HTMX SSE extension — drives the live dashboard updates (M24).
+       Tiny (~3 KB); only the dashboard page opts in via hx-ext="sse". #}
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/ext/sse.js"></script>
 </head>
 <body>
     <div class="app-shell">
