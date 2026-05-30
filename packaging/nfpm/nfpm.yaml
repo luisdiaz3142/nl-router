@@ -100,6 +100,19 @@ contents:
     file_info:
       mode: 0755
 
+  # ---- DSL predicate-validation helper ---------------------------------
+  # Tiny CLI wrapper around the router's parser; the management API
+  # shells out to it at rule create/update time (M22) and the
+  # `nl-router validate-predicate` subcommand uses it for dry-runs
+  # (M27). Without this entry the binary builds + stages correctly but
+  # nfpm leaves it out of the .deb — which is exactly the bug that
+  # made `validate-predicate` warn "not installed" on the first M27
+  # deploy. Added in M27 hotfix.
+  - src: "${STAGING}/usr/libexec/nl-router/nl-dsl-validate"
+    dst: /usr/libexec/nl-router/nl-dsl-validate
+    file_info:
+      mode: 0755
+
   # ---- Processing module binaries --------------------------------------
   - src: "${STAGING}/usr/libexec/nl-router/modules/anonymize_basic"
     dst: /usr/libexec/nl-router/modules/anonymize_basic
