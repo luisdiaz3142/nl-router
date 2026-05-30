@@ -8,13 +8,12 @@ possible, not introduce a separate domain layer.
 from __future__ import annotations
 
 import logging
-import os
-import shutil
-import subprocess
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from nl_router import dsl as dsl_validator
 
 
 # Predicate preflight — cheap structural checks plus a real DSL parse via
@@ -39,52 +38,33 @@ log = logging.getLogger("nl_router.api.models")
 
 
 def _dsl_validate_binary() -> str | None:
-    """Return the path to nl-dsl-validate, or None if not installed.
-
-    Honor NL_ROUTER_DSL_VALIDATE_BIN for dev overrides (point at a
-    locally-built copy). In the .deb the binary lands at
-    /usr/libexec/nl-router/nl-dsl-validate.
+    """Back-compat shim — kept so M25 tests that monkeypatch this
+    symbol keep working. The real discovery lives in nl_router.dsl.
     """
-    override = os.environ.get("NL_ROUTER_DSL_VALIDATE_BIN")
-    if override:
-        return override if os.path.isfile(override) else None
-    canonical = "/usr/libexec/nl-router/nl-dsl-validate"
-    if os.path.isfile(canonical):
-        return canonical
-    # Last-resort PATH lookup so developers running uvicorn directly
-    # can prepend cpp/build/.../ to PATH and still get the check.
-    return shutil.which("nl-dsl-validate")
+    return dsl_validator.find_binary()
 
 
 def _dsl_parse_check(predicate: str) -> None:
-    """Shell out to nl-dsl-validate; raise ValueError on parse failure.
+    """Validate predicate via nl_router.dsl; raise ValueError on parse failure.
 
     Returns silently if the binary isn't installed — keeps dev setups
     where the API runs without the C++ build available from crashing.
     The router-side cache refresh remains the second line of defense in
     that mode, same as it was pre-M22. In production .deb installs the
     binary is always present, so this check is authoritative.
+
+    Also routes through _dsl_validate_binary() so tests can monkeypatch
+    that symbol to force the no-binary code path.
     """
-    binary = _dsl_validate_binary()
-    if binary is None:
+    if _dsl_validate_binary() is None:
         log.warning("dsl_validate.skipped no_binary")
         return
-    try:
-        result = subprocess.run(
-            [binary],
-            input=predicate.encode("utf-8"),
-            capture_output=True,
-            timeout=5,
-        )
-    except subprocess.TimeoutExpired:
-        raise ValueError("predicate validation timed out") from None
-    if result.returncode == 0:
+    result = dsl_validator.validate_predicate(predicate)
+    if result.ok:
         return
-    # Surface the helper's stderr verbatim — the parser writes one-line
-    # messages with embedded line/column info ("syntax error (at line N,
-    # column M)") which is exactly the form an operator wants to see.
-    msg = result.stderr.decode("utf-8", errors="replace").strip()
-    raise ValueError(msg or "predicate failed to parse (no detail)")
+    # Parser stderr is operator-readable as-is ("syntax error at line N,
+    # column M") — surface verbatim.
+    raise ValueError(result.detail or "predicate failed to parse (no detail)")
 
 
 def _validate_predicate_text(s: str) -> str:

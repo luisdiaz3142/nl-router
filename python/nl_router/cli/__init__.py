@@ -10,7 +10,7 @@ from __future__ import annotations
 import typer
 
 from nl_router import __version__
-from nl_router.cli import config_io, destination, init, migrate, rule, serve, status
+from nl_router.cli import config_io, destination, init, migrate, rule, serve, status, validate
 
 app = typer.Typer(
     name="nl-router",
@@ -57,6 +57,7 @@ app.command(name="migrate")(migrate.migrate)
 app.add_typer(rule.app, name="rule", help="Manage routing rules.")
 app.command(name="serve")(serve.serve)
 app.command(name="status")(status.status)
+app.command(name="validate-predicate")(validate.validate_predicate_cmd)
 
 
 __all__ = ["app"]
