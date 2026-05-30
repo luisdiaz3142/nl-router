@@ -77,7 +77,15 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             libpq-dev libssl-dev zlib1g-dev \
             nlohmann-json3-dev libcurl4-openssl-dev \
-            libdcmtk-dev
+            libdcmtk-dev \
+            libnsl-dev libwrap0-dev
+          # libnsl-dev: glibc on Ubuntu 24.04+ split libnsl out of the
+          # default install; DCMTK's link interface still requires
+          # `-lnsl`. The Docker build container is Debian 12 where
+          # libnsl is bundled — that's why only the host test job
+          # tripped over this.
+          # libwrap0-dev: same DCMTK dep, tcp_wrappers headers. Less
+          # likely to be missing but harmless to declare.
 
       - name: Configure CMake
         # NL_ROUTER_STATIC_DCMTK=OFF: link against system libdcmtk for
